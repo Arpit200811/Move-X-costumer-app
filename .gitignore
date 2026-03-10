@@ -18,6 +18,15 @@ expo-env.d.ts
 *.key
 *.mobileprovision
 
+node_modules
+.env
+google-services.json
+.expo
+.expo-shared
+dist
+build
+*.log
+
 # Metro
 .metro-health-check*
 
