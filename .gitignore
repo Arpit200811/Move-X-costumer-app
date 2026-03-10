@@ -20,7 +20,6 @@ expo-env.d.ts
 
 node_modules
 .env
-google-services.json
 .expo
 .expo-shared
 dist
