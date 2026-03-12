@@ -12,7 +12,7 @@ import {
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import Animated, { FadeInDown, FadeInUp, FadeInRight } from 'react-native-reanimated';
+import { FadeInDown, FadeInUp, FadeInRight } from 'react-native-reanimated';
 
 const { width } = Dimensions.get('window');
 
@@ -36,9 +36,13 @@ const FEATURES = [
 export default function ParcelScreen({ route, navigation }) {
     const { width, height } = useWindowDimensions();
     const [selectedType, setSelectedType] = useState('1');
+    const [destination, setDestination] = useState('');
+    const [destCoords, setDestCoords] = useState(null);
     const [quote, setQuote] = useState(null);
     const [loading, setLoading] = useState(false);
     const [userAddress, setUserAddress] = useState('Fetching location...');
+    const [searchResults, setSearchResults] = useState([]);
+    const [isSearching, setIsSearching] = useState(false);
 
     const triggerHaptic = (type = 'light') => {
         if (Platform.OS === 'web') return;
@@ -76,7 +80,7 @@ export default function ParcelScreen({ route, navigation }) {
         fetchDemoQuote();
     }, []);
 
-    const fetchDemoQuote = async () => {
+    const fetchDemoQuote = async (dest = null) => {
         const pLat = route.params?.userLocation?.latitude || 28.6139;
         const pLng = route.params?.userLocation?.longitude || 77.2090;
 
@@ -84,12 +88,38 @@ export default function ParcelScreen({ route, navigation }) {
         try {
             const res = await api.post('/orders/quote', {
                 pickup: { lat: pLat, lng: pLng },
-                destination: { lat: pLat + 0.02, lng: pLng + 0.02 }, // Demo nearby
+                destination: dest || { lat: pLat + 0.02, lng: pLng + 0.02 },
                 serviceClass: 'Economy'
             });
             setQuote(res.data.quote);
+        } catch (e) {
+            console.log('Quote Error:', e);
+        } finally { setLoading(false); }
+    };
+
+    const handleSearch = async (text) => {
+        setDestination(text);
+        if (text.length < 3) return setSearchResults([]);
+        
+        try {
+            const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(text)}&limit=5`);
+            const data = await res.json();
+            const formatted = data.features.map(f => ({
+                name: f.properties.name || f.properties.street || 'Unknown Place',
+                city: f.properties.city || f.properties.state || '',
+                lat: f.geometry.coordinates[1],
+                lng: f.geometry.coordinates[0]
+            }));
+            setSearchResults(formatted);
         } catch (e) {}
-        finally { setLoading(false); }
+    };
+
+    const selectLocation = (loc) => {
+        setDestination(loc.name);
+        setDestCoords({ lat: loc.lat, lng: loc.lng });
+        setSearchResults([]);
+        fetchDemoQuote({ lat: loc.lat, lng: loc.lng });
+        triggerHaptic('medium');
     };
 
     return (
@@ -109,7 +139,7 @@ export default function ParcelScreen({ route, navigation }) {
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
                 {/* Modern Banner */}
-                <Animated.View entering={FadeInDown.delay(100)} style={styles.heroWrapper}>
+                <View style={styles.heroWrapper}>
                     <LinearGradient colors={['#2563EB', '#1e40af']} style={styles.heroGradient}>
                         <View style={styles.heroContent}>
                             <Text style={styles.heroTag}>MOVE ANYTHING</Text>
@@ -121,10 +151,10 @@ export default function ParcelScreen({ route, navigation }) {
                             style={styles.heroIllustration}
                         />
                     </LinearGradient>
-                </Animated.View>
+                </View>
 
                 {/* Logistics Route Card */}
-                <Animated.View entering={FadeInUp.delay(200)} style={styles.routeCard}>
+                <View style={styles.routeCard}>
                     <View style={styles.locationVisual}>
                         <View style={styles.dotFrom} />
                         <View style={styles.dashedLine} />
@@ -138,18 +168,34 @@ export default function ParcelScreen({ route, navigation }) {
                             <Text style={styles.locMain} numberOfLines={1}>{userAddress}</Text>
                         </TouchableOpacity>
                         <View style={styles.locDivider} />
-                        <TouchableOpacity style={styles.locRow}>
+                        <View style={styles.locRow}>
                             <Text style={styles.locLabel}>DELIVER TO</Text>
-                            <Text style={[styles.locMain, { color: '#94a3b8' }]}>Search destination...</Text>
-                        </TouchableOpacity>
+                            <TextInput 
+                                style={[styles.locMain, { padding: 0 }]}
+                                placeholder="Search destination..."
+                                value={destination}
+                                onChangeText={handleSearch}
+                                placeholderTextColor="#94a3b8"
+                            />
+                        </View>
+                        {searchResults.length > 0 && (
+                            <View style={styles.miniResults}>
+                                {searchResults.map((loc, i) => (
+                                    <TouchableOpacity key={i} style={styles.miniResultItem} onPress={() => selectLocation(loc)}>
+                                        <MapPin size={14} color="#2563EB" />
+                                        <Text style={styles.miniResultText} numberOfLines={1}>{loc.name}, {loc.city}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        )}
                     </View>
-                </Animated.View>
+                </View>
 
                 {/* Recent Sends */}
                 <Text style={styles.sectionTitle}>Send Again</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentScroll}>
                     {RECENT_SENDS.map((recent, i) => (
-                        <Animated.View key={recent.id} entering={FadeInRight.delay(i * 100)}>
+                        <View key={recent.id}>
                             <TouchableOpacity key={recent.id} style={styles.recentCard} onPress={() => triggerHaptic('medium')}>
                                 <View style={styles.recentIconBox}>
                                     <Clock size={20} color="#2563EB" />
@@ -159,7 +205,7 @@ export default function ParcelScreen({ route, navigation }) {
                                     <Text style={styles.recentAddress} numberOfLines={1}>{recent.address}</Text>
                                 </View>
                             </TouchableOpacity>
-                        </Animated.View>
+                        </View>
                     ))}
                 </ScrollView>
 
@@ -167,7 +213,7 @@ export default function ParcelScreen({ route, navigation }) {
                 <Text style={styles.sectionTitle}>What are you sending?</Text>
                 <View style={styles.typeGrid}>
                     {PACKAGE_TYPES.map((type, idx) => (
-                        <Animated.View key={type.id} entering={FadeInUp.delay(idx * 100)}>
+                        <View key={type.id}>
                             <TouchableOpacity 
                                 style={[styles.typeItemLg, selectedType === type.id && styles.typeItemActiveLg]}
                                 onPress={() => {
@@ -188,7 +234,7 @@ export default function ParcelScreen({ route, navigation }) {
                                     )}
                                 </LinearGradient>
                             </TouchableOpacity>
-                        </Animated.View>
+                        </View>
                     ))}
                 </View>
 
@@ -208,7 +254,7 @@ export default function ParcelScreen({ route, navigation }) {
                 <Text style={[styles.sectionTitle, { marginTop: 32 }]}>Why MoveX Parcel?</Text>
                 <View style={styles.featuresGrid}>
                     {FEATURES.map((feat, i) => (
-                        <Animated.View key={feat.id} entering={FadeInUp.delay(i * 150)}>
+                        <View key={feat.id}>
                             <View style={styles.featureItem}>
                                 <View style={styles.featIconBox}>
                                     <Text style={styles.featEmoji}>{feat.icon}</Text>
@@ -218,7 +264,7 @@ export default function ParcelScreen({ route, navigation }) {
                                     <Text style={styles.featDesc}>{feat.desc}</Text>
                                 </View>
                             </View>
-                        </Animated.View>
+                        </View>
                     ))}
                 </View>
 
@@ -316,5 +362,8 @@ const styles = StyleSheet.create({
     estimatePrice: { fontSize: 24, fontWeight: '900', color: '#0f172a', marginTop: 4 },
     nextBtn: { borderRadius: 20, overflow: 'hidden', minWidth: 180 },
     nextGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 18, paddingHorizontal: 25, gap: 10 },
-    nextText: { color: '#fff', fontSize: 16, fontWeight: '900' }
+    nextText: { color: '#fff', fontSize: 16, fontWeight: '900' },
+    miniResults: { marginTop: 10, padding: 10, backgroundColor: '#f8fafc', borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0' },
+    miniResultItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
+    miniResultText: { fontSize: 13, fontWeight: '600', color: '#1e293b' }
 });

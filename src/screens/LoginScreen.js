@@ -5,21 +5,36 @@ import api from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTranslation } from 'react-i18next';
+import { useForm, Controller } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
+import * as yup from 'yup';
+import Toast from 'react-native-toast-message';
+
+const loginSchema = yup.object().shape({
+  phone: yup.string()
+    .required('Phone number is required')
+    .min(10, 'Phone must be at least 10 digits')
+    .matches(/^\d+$/, 'Phone must contain only numbers')
+});
 
 export default function LoginScreen({ navigation }) {
   const { t } = useTranslation();
-  const [phone, setPhone] = useState('');
+  const { control, handleSubmit, formState: { errors, isValid } } = useForm({
+    resolver: yupResolver(loginSchema),
+    defaultValues: { phone: '' },
+    mode: 'onChange'
+  });
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async () => {
-    if (!phone) return Alert.alert(t('error', 'Error'), t('phone_required', 'Please enter your phone number.'));
-    
+  const handleLogin = async (data) => {
     setLoading(true);
     try {
-      await api.post('/auth/send-otp', { phone });
-      navigation.navigate('Verification', { phone });
+      await api.post('/auth/send-otp', { phone: data.phone });
+      Toast.show({ type: 'success', text1: 'OTP Sent', text2: 'Please check your SMS' });
+      navigation.navigate('Verification', { phone: data.phone });
     } catch (error) {
-      Alert.alert(t('login_failed', 'Login Failed'), error.response?.data?.message || t('auth_error_desc', 'Unable to connect to service. Please try again.'));
+      const msg = error.response?.data?.message || t('auth_error_desc', 'Unable to connect to service. Please try again.');
+      Toast.show({ type: 'error', text1: t('login_failed', 'Login Failed'), text2: msg });
     } finally {
       setLoading(false);
     }
@@ -43,22 +58,30 @@ export default function LoginScreen({ navigation }) {
             </View>
 
             <View style={styles.inputSection}>
-                <View style={styles.inputRow}>
+                <View style={[styles.inputRow, errors.phone && { borderColor: '#ef4444' }]}>
                     <Phone size={20} color="#64748b" />
-                    <TextInput
-                        style={styles.textInput}
-                        placeholder={t('phone_number', 'Phone Number')}
-                        placeholderTextColor="#94a3b8"
-                        keyboardType="phone-pad"
-                        value={phone}
-                        onChangeText={setPhone}
+                    <Controller
+                        control={control}
+                        name="phone"
+                        render={({ field: { onChange, onBlur, value } }) => (
+                            <TextInput
+                                style={styles.textInput}
+                                placeholder={t('phone_number', 'Phone Number')}
+                                placeholderTextColor="#94a3b8"
+                                keyboardType="phone-pad"
+                                value={value}
+                                onChangeText={onChange}
+                                onBlur={onBlur}
+                            />
+                        )}
                     />
                 </View>
+                {errors.phone && <Text style={{ color: '#ef4444', fontSize: 13, marginTop: -15, marginBottom: 15, fontWeight: '600' }}>{errors.phone.message}</Text>}
 
                 <TouchableOpacity 
-                    style={[styles.button, phone.length > 5 ? styles.buttonActive : styles.buttonInactive]}
-                    onPress={handleLogin}
-                    disabled={loading}
+                    style={[styles.button, isValid ? styles.buttonActive : styles.buttonInactive]}
+                    onPress={handleSubmit(handleLogin)}
+                    disabled={loading || !isValid}
                 >
                     <Text style={styles.buttonText}>{loading ? (t('loading', 'Please wait...')) : (t('continue', 'Continue'))}</Text>
                 </TouchableOpacity>

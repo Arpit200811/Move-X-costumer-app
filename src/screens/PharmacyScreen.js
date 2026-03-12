@@ -5,17 +5,20 @@ import {
     Dimensions, StyleSheet, Platform, ImageBackground, ActivityIndicator,
     Keyboard, useWindowDimensions, KeyboardAvoidingView 
 } from 'react-native';
+import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { 
-    ChevronLeft, Search, MapPin, Beaker, 
+    ChevronLeft, Search as SearchIcon, MapPin, Beaker, 
     Stethoscope, Pill, ScanLine, Tag, FileText, ChevronRight, ChevronDown,
     Activity, Clipboard, Heart, Baby, ShieldCheck, Thermometer, User, 
     Zap, Flame, Star, ShoppingBag, Plus, PlusCircle, Clock
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeInDown, FadeInUp, FadeInRight, SlideInRight, ZoomIn } from 'react-native-reanimated';
+import { 
+    FadeInDown, FadeInUp, FadeInRight, SlideInRight, ZoomIn 
+} from 'react-native-reanimated';
 import api from '../services/api';
 import * as Haptics from 'expo-haptics';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -42,13 +45,35 @@ const FLASH_DEALS = [
 
 export default function PharmacyScreen({ navigation }) {
     const { width } = useWindowDimensions();
-    const [userAddress, setUserAddress] = useState('Cyber City, Gurgaon');
+    const [userAddress, setUserAddress] = useState('Locating...');
     const [pharmacies, setPharmacies] = useState([]);
     const [loading, setLoading] = useState(true);
+
+    const fetchLocation = async () => {
+        try {
+            let { status } = await Location.requestForegroundPermissionsAsync();
+            if (status === 'granted') {
+                let loc = await Location.getCurrentPositionAsync({});
+                const res = await fetch(`https://photon.komoot.io/reverse?lon=${loc.coords.longitude}&lat=${loc.coords.latitude}`);
+                const data = await res.json();
+                if (data.features?.length > 0) {
+                    const props = data.features[0].properties;
+                    const address = props.name || props.street || props.city || 'Current Location';
+                    setUserAddress(address);
+                    await AsyncStorage.setItem('last_known_pharm_loc', JSON.stringify({ ...loc.coords, address }));
+                }
+            }
+        } catch (e) {
+            const stored = await AsyncStorage.getItem('last_known_pharm_loc');
+            if (stored) setUserAddress(JSON.parse(stored).address);
+            else setUserAddress('Cyber City, Gurgaon');
+        }
+    };
 
     useEffect(() => {
         let mounted = true;
         fetchData(mounted);
+        fetchLocation();
         return () => { mounted = false; };
     }, [fetchData]);
 
@@ -97,7 +122,7 @@ export default function PharmacyScreen({ navigation }) {
                         style={styles.searchBar}
                         onPress={() => navigation.navigate('Search', { activeTab: 'PHARMACY' })}
                     >
-                        <Search size={20} color="#94a3b8" />
+                        <SearchIcon size={20} color="#94a3b8" />
                         <Text style={styles.searchPlaceholder}>Search for medicines & health items...</Text>
                         <View style={styles.divider} />
                         <ScanLine size={20} color="#f89b2d" />
@@ -108,7 +133,7 @@ export default function PharmacyScreen({ navigation }) {
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
                 <View style={styles.serviceGrid}>
                     {APOLLO_SERVICES.map((item, idx) => (
-                        <Animated.View key={item.id} entering={FadeInUp.delay(idx * 100)}>
+                        <View key={item.id}>
                             <TouchableOpacity style={styles.serviceCard} onPress={() => triggerHaptic('light')}>
                                 <View style={[styles.serviceIconContainer, { backgroundColor: item.bg }]}>
                                     <item.icon size={26} color={item.color} />
@@ -116,7 +141,7 @@ export default function PharmacyScreen({ navigation }) {
                                 <Text style={styles.serviceTitle}>{item.name}</Text>
                                 <Text style={[styles.serviceDesc, { color: item.color }]}>{item.desc}</Text>
                             </TouchableOpacity>
-                        </Animated.View>
+                        </View>
                     ))}
                 </View>
 
@@ -194,8 +219,11 @@ export default function PharmacyScreen({ navigation }) {
 
                 <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>PARTNER PHARMACIES</Text></View>
                 {loading ? <ActivityIndicator size="large" color="#1a3a5f" style={{ margin: 40 }} /> : pharmacies.map((pharm, idx) => (
-                    <Animated.View key={pharm._id} entering={FadeInUp.delay(300 + idx * 100)}>
-                        <TouchableOpacity style={styles.pharmCard} onPress={() => navigation.navigate('StoreMenu', { vendor: pharm })}>
+                    <View key={pharm._id}>
+                        <TouchableOpacity style={styles.pharmCard} onPress={() => navigation.navigate('StoreMenu', { 
+                            vendor: pharm,
+                            userLocation: route.params?.userLocation
+                        })}>
                             <Image source={{ uri: pharm.image || 'https://images.unsplash.com/photo-1586015555751-63bb77f4322a?q=80&w=800' }} style={styles.pharmImgLg} />
                             <View style={styles.pharmDiscount}><Zap size={10} color="#fff" fill="#fff" /><Text style={styles.pharmDiscountText}>20% OFF</Text></View>
                             <View style={styles.pharmInfo}>
@@ -211,7 +239,7 @@ export default function PharmacyScreen({ navigation }) {
                                 </View>
                             </View>
                         </TouchableOpacity>
-                    </Animated.View>
+                    </View>
                 ))}
             </ScrollView>
         </SafeAreaView>

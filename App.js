@@ -7,8 +7,21 @@ import { StatusBar } from 'expo-status-bar';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import './src/i18n'; 
 import { Provider as PaperProvider } from 'react-native-paper';
+// import * as Sentry from '@sentry/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import Toast from 'react-native-toast-message';
 import AppNavigator from './src/navigation/AppNavigator';
 import { registerForPushNotificationsAsync, subscribeToNotifications } from './src/services/notifications';
+
+/*
+Sentry.init({
+  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN || "https://examplePublicKey@o0.ingest.sentry.io/0",
+  tracesSampleRate: 1.0,
+});
+*/
+
+const queryClient = new QueryClient();
 
 LogBox.ignoreLogs([
   'InteractionManager has been deprecated',
@@ -31,13 +44,18 @@ export default function App() {
   }, []);
 
   return (
-    <StripeProvider publishableKey={STRIPE_KEY}>
-        <PaperProvider>
-            <NavigationContainer>
-                <AppNavigator />
-                <StatusBar style="auto" />
-            </NavigationContainer>
-        </PaperProvider>
-    </StripeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+        <QueryClientProvider client={queryClient}>
+            <StripeProvider publishableKey={STRIPE_KEY}>
+                <PaperProvider>
+                    <NavigationContainer>
+                        <AppNavigator />
+                        <StatusBar style="auto" />
+                    </NavigationContainer>
+                    <Toast />
+                </PaperProvider>
+            </StripeProvider>
+        </QueryClientProvider>
+    </GestureHandlerRootView>
   );
 }

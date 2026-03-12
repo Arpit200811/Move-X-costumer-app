@@ -6,21 +6,25 @@ import {
 } from 'react-native';
 import { 
     ChevronLeft, Star, Heart, Clock, MoreHorizontal, Info, Minus, Plus, 
-    ShoppingBag, Search, Share2, Filter, Zap, ChevronDown, MapPin, ShieldCheck, FileText
+    ShoppingBag, Search as SearchIcon, Share2, Filter, Zap, ChevronDown, MapPin, ShieldCheck, FileText
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { 
-    FadeInDown, FadeInUp, useSharedValue, useAnimatedStyle, 
-    interpolate, useAnimatedScrollHandler 
+import { 
+    FadeInDown, FadeInUp, 
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+import useCartStore from '../store/useCartStore';
 
 const HEADER_HEIGHT = 280;
 
 export default function StoreMenuScreen({ route, navigation }) {
     const { width, height } = useWindowDimensions();
     const { vendor = {} } = route.params || {};
-    const [cart, setCart] = useState({});
+    const cart = useCartStore((state) => state.cart);
+    const addItem = useCartStore((state) => state.addItem);
+    const removeItem = useCartStore((state) => state.removeItem);
+    const getSummary = useCartStore((state) => state.getSummary);
+    
     const [searchQuery, setSearchQuery] = useState('');
     const [isVegOnly, setIsVegOnly] = useState(false);
     
@@ -31,22 +35,10 @@ export default function StoreMenuScreen({ route, navigation }) {
     const accentColor = isPharmacy ? '#f89b2d' : '#E23744';
     const bgColor = isPharmacy ? '#f8fafc' : '#fff';
 
-    const scrollY = useSharedValue(0);
-
-    const onScroll = useAnimatedScrollHandler((event) => {
-        scrollY.value = event.contentOffset.y;
-    });
-
-    const headerStyle = useAnimatedStyle(() => {
-        const opacity = interpolate(scrollY.value, [0, HEADER_HEIGHT - 100], [1, 0]);
-        const scale = interpolate(scrollY.value, [-100, 0], [1.2, 1]);
-        return { opacity, transform: [{ scale }] };
-    });
-
-    const stickyTitleStyle = useAnimatedStyle(() => {
-        const opacity = interpolate(scrollY.value, [HEADER_HEIGHT - 80, HEADER_HEIGHT], [0, 1]);
-        return { opacity };
-    });
+    // Simplified static header for stability
+    const headerStyle = {};
+    const stickyTitleStyle = { opacity: 0 };
+    const onScroll = () => {};
 
     const products = useMemo(() => {
         let list = vendor?.products || [];
@@ -66,37 +58,17 @@ export default function StoreMenuScreen({ route, navigation }) {
 
     const handleAdd = (product) => {
         triggerHaptic();
-        setCart(prev => ({ ...prev, [product._id]: (prev[product._id] || 0) + 1 }));
+        addItem(product, vendor._id);
     };
 
     const handleRemove = (product) => {
         triggerHaptic();
-        setCart(prev => {
-            const current = prev[product._id] || 0;
-            if (current <= 1) {
-                const newCart = { ...prev };
-                delete newCart[product._id];
-                return newCart;
-            }
-            return { ...prev, [product._id]: current - 1 };
-        });
+        removeItem(product._id);
     };
 
     const checkoutSummary = useMemo(() => {
-        let totalItems = 0;
-        let totalPrice = 0;
-        const itemsList = [];
-        Object.keys(cart).forEach(id => {
-            const product = (vendor?.products || []).find(p => p._id === id);
-            if (product) {
-                const qty = cart[id];
-                totalItems += qty;
-                totalPrice += (product.price * qty);
-                itemsList.push({ ...product, quantity: qty });
-            }
-        });
-        return { totalItems, totalPrice: totalPrice.toFixed(2), itemsList };
-    }, [cart, vendor?.products]);
+        return getSummary(vendor?.products || []);
+    }, [cart, vendor?.products, getSummary]);
 
     return (
         <View style={[styles.container, { backgroundColor: bgColor }]}>
@@ -107,24 +79,24 @@ export default function StoreMenuScreen({ route, navigation }) {
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.navBtn}>
                     <ChevronLeft size={24} color={isPharmacy ? "#fff" : "#000"} />
                 </TouchableOpacity>
-                <Animated.View style={[styles.stickyTitleContainer, stickyTitleStyle]}>
+                <View style={[styles.stickyTitleContainer, stickyTitleStyle]}>
                     <Text style={[styles.stickyTitle, isPharmacy && { color: '#fff' }]}>{vendor.name}</Text>
                     <Text style={[styles.stickySub, isPharmacy && { color: 'rgba(255,255,255,0.7)' }]}>{vendor.deliveryTime || '30 min'}</Text>
-                </Animated.View>
+                </View>
                 <View style={styles.navActions}>
-                    <TouchableOpacity style={styles.navBtn}><Search size={20} color={isPharmacy ? "#fff" : "#000"} /></TouchableOpacity>
+                    <TouchableOpacity style={styles.navBtn}><SearchIcon size={20} color={isPharmacy ? "#fff" : "#000"} /></TouchableOpacity>
                     <TouchableOpacity style={[styles.navBtn, { marginLeft: 10 }]}><Share2 size={20} color={isPharmacy ? "#fff" : "#000"} /></TouchableOpacity>
                 </View>
             </SafeAreaView>
 
-            <Animated.ScrollView 
+            <ScrollView 
                 onScroll={onScroll}
                 scrollEventThrottle={16}
                 showsVerticalScrollIndicator={false} 
                 contentContainerStyle={{ paddingBottom: checkoutSummary.totalItems > 0 ? 120 : 40 }}
             >
                 {/* Hero Info Section */}
-                <Animated.View style={[styles.hero, headerStyle]}>
+                <View style={[styles.hero, headerStyle]}>
                     <View style={styles.heroContent}>
                         <View style={styles.titleRow}>
                             <Text style={styles.heroTitle}>{vendor.name}</Text>
@@ -156,7 +128,7 @@ export default function StoreMenuScreen({ route, navigation }) {
                             <Text style={[styles.offerText, { color: accentColor }]}>FLAT 15% OFF + Free Delivery above ₹299</Text>
                         </View>
                     </View>
-                </Animated.View>
+                </View>
 
                 {/* Filter & Search Mini Bar */}
                 <View style={styles.menuControls}>
@@ -172,7 +144,7 @@ export default function StoreMenuScreen({ route, navigation }) {
                         </View>
                     )}
                     <View style={[styles.menuSearchBar, isPharmacy && { backgroundColor: '#fff', elevation: 2 }]}>
-                        <Search size={16} color="#94a3b8" />
+                        <SearchIcon size={16} color="#94a3b8" />
                         <TextInput 
                             placeholder={isPharmacy ? "Search medicines & healthcare..." : "Search in menu..."}
                             placeholderTextColor="#94a3b8"
@@ -194,7 +166,7 @@ export default function StoreMenuScreen({ route, navigation }) {
                     {products.map((item, i) => {
                         const qty = cart[item._id] || 0;
                         return (
-                            <Animated.View key={item._id} entering={FadeInDown.delay(i * 100)}>
+                            <View key={item._id}>
                                 <View style={[styles.itemCard, isPharmacy && styles.pharmacyItemCard]}>
                                     <View style={styles.itemInfo}>
                                         {!isPharmacy ? (
@@ -245,19 +217,22 @@ export default function StoreMenuScreen({ route, navigation }) {
                                         </View>
                                     </View>
                                 </View>
-                            </Animated.View>
+                            </View>
                         );
                     })}
                 </View>
-            </Animated.ScrollView>
+            </ScrollView>
 
             {/* Floating Cart (Zomato/Apollo Style) */}
             {checkoutSummary.totalItems > 0 && (
-                <Animated.View entering={FadeInUp} style={styles.floatingCart}>
+                <View style={styles.floatingCart}>
                     <TouchableOpacity 
                         style={[styles.cartContent, { backgroundColor: themeColor, shadowColor: themeColor }]}
                         onPress={() => navigation.navigate('CartCheckout', { 
-                            vendor, items: checkoutSummary.itemsList, total: checkoutSummary.totalPrice 
+                            vendor, 
+                            items: checkoutSummary.itemsList, 
+                            total: checkoutSummary.totalPrice,
+                            userLocation: route.params?.userLocation 
                         })}
                     >
                         <View style={styles.cartLeft}>
@@ -272,7 +247,7 @@ export default function StoreMenuScreen({ route, navigation }) {
                             <ShoppingBag size={18} color="#fff" style={{ marginLeft: 8 }} />
                         </View>
                     </TouchableOpacity>
-                </Animated.View>
+                </View>
             )}
         </View>
     );

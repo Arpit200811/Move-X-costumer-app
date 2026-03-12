@@ -7,6 +7,14 @@ import { ChevronLeft, MapPin, Home, Briefcase, Plus, Trash2, ChevronRight, Bookm
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTranslation } from 'react-i18next';
 import api from '../services/api';
+import { useForm, Controller } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
+import * as yup from 'yup';
+import Toast from 'react-native-toast-message';
+
+const addressSchema = yup.object().shape({
+  address: yup.string().required('Address is required').min(5, 'Address is too short')
+});
 
 export default function SavedAddressesScreen({ navigation }) {
   const { t } = useTranslation();
@@ -16,7 +24,11 @@ export default function SavedAddressesScreen({ navigation }) {
     { id: '3', type: 'OTHER', address: 'Gym Central, Downtown Square', icon: Bookmark },
   ]);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newAddress, setNewAddress] = useState('');
+  const { control, handleSubmit, formState: { errors }, reset } = useForm({
+    resolver: yupResolver(addressSchema),
+    defaultValues: { address: '' },
+    mode: 'onChange'
+  });
   const [newType, setNewType] = useState('OTHER');
 
   const handleDelete = (id) => {
@@ -27,22 +39,23 @@ export default function SavedAddressesScreen({ navigation }) {
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: () => {
           setAddresses(prev => prev.filter(a => a.id !== id));
+          Toast.show({ type: 'success', text1: 'Address Removed' });
         }}
       ]
     );
   };
 
-  const handleAddAddress = () => {
-    if (!newAddress.trim()) return Alert.alert('Error', 'Address cannot be empty');
+  const handleAddAddress = (data) => {
     const newEntry = {
       id: Date.now().toString(),
       type: newType,
-      address: newAddress.trim(),
+      address: data.address.trim(),
       icon: newType === 'HOME' ? Home : newType === 'WORK' ? Briefcase : Bookmark
     };
     setAddresses(prev => [newEntry, ...prev]);
     setShowAddModal(false);
-    setNewAddress('');
+    reset();
+    Toast.show({ type: 'success', text1: 'Success', text2: 'Address saved!' });
   };
 
   const renderItem = ({ item }) => {
@@ -113,19 +126,27 @@ export default function SavedAddressesScreen({ navigation }) {
                     ))}
                 </View>
 
-                <TextInput
-                    style={styles.textInput}
-                    placeholder="Enter full address"
-                    value={newAddress}
-                    onChangeText={setNewAddress}
-                    multiline
+                <Controller
+                    control={control}
+                    name="address"
+                    render={({ field: { onChange, onBlur, value } }) => (
+                        <TextInput
+                            style={[styles.textInput, errors.address && { borderColor: '#ef4444' }]}
+                            placeholder="Enter full address"
+                            value={value}
+                            onChangeText={onChange}
+                            onBlur={onBlur}
+                            multiline
+                        />
+                    )}
                 />
+                {errors.address && <Text style={{ color: '#ef4444', fontSize: 11, marginTop: -16, marginBottom: 20, fontWeight: 'bold' }}>{errors.address.message}</Text>}
 
                 <View style={styles.modalActions}>
                     <TouchableOpacity onPress={() => setShowAddModal(false)} style={styles.cancelBtn}>
                         <Text style={styles.cancelBtnText}>CANCEL</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={handleAddAddress} style={styles.confirmBtn}>
+                    <TouchableOpacity onPress={handleSubmit(handleAddAddress)} style={styles.confirmBtn}>
                         <Text style={styles.confirmBtnText}>SAVE PLACE</Text>
                     </TouchableOpacity>
                 </View>

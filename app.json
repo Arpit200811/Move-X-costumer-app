@@ -13,19 +13,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.movex.customer",
-      "config": {
-        "googleMapsApiKey": "AIza_placeholder_google_maps_key"
-      }
+      "bundleIdentifier": "com.movex.customer"
     },
     "android": {
       "package": "com.movex.customer",
-      "googleServicesFile": "./google-services.json",
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIza_placeholder_google_maps_key"
-        }
-      },
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -34,11 +25,18 @@
       }
     },
     "plugins": [
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "com.movex.customer",
+          "enableGooglePay": false
+        }
+      ]
     ],
     "extra": {
       "eas": {
-        "projectId": "placeholder-project-id"
+        "projectId": "e3b5393e-45b3-4755-ac6f-22cceb26c1d6"
       }
     },
     "web": {

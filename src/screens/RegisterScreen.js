@@ -10,14 +10,24 @@ import api from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTranslation } from 'react-i18next';
 import * as ImagePicker from 'expo-image-picker';
+import { useForm, Controller } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
+import * as yup from 'yup';
+import Toast from 'react-native-toast-message';
+
+const registerSchema = yup.object().shape({
+  name: yup.string().required('Full name is required').min(2, 'Name must be at least 2 characters'),
+  phone: yup.string().required('Phone number is required').min(10, 'Phone must be at least 10 digits').matches(/^\d+$/, 'Numeric characters only'),
+});
 
 export default function RegisterScreen({ navigation }) {
   const { t } = useTranslation();
-  const [form, setForm] = useState({
-    name: '',
-    phone: '',
-    profileImage: null
+  const { control, handleSubmit, formState: { errors, isValid } } = useForm({
+    resolver: yupResolver(registerSchema),
+    defaultValues: { name: '', phone: '' },
+    mode: 'onChange'
   });
+  const [profileImage, setProfileImage] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const handlePickImage = async () => {
@@ -35,39 +45,31 @@ export default function RegisterScreen({ navigation }) {
     });
 
     if (!result.canceled) {
-      setForm({ ...form, profileImage: result.assets[0].uri });
+      setProfileImage(result.assets[0].uri);
     }
   };
 
-  const handleRegister = async () => {
-    if (!form.name || !form.phone) {
-      return Alert.alert(t('error', 'Error'), t('all_fields_required', 'Please fill in all required fields.'));
-    }
-
-    if (form.phone.length < 10) {
-      return Alert.alert(t('invalid_phone', 'Invalid Phone'), t('phone_length_error', 'Phone number must be at least 10 digits long.'));
-    }
-
+  const handleRegister = async (data) => {
     setLoading(true);
     try {
       // Step 1: Send OTP to verify phone
-      await api.post('/auth/send-otp', { phone: form.phone });
+      await api.post('/auth/send-otp', { phone: data.phone });
+      
+      Toast.show({ type: 'success', text1: 'OTP Sent', text2: 'Please verify to continue' });
       
       // Navigate to verification but pass registration data
       navigation.navigate('Verification', { 
-        phone: form.phone, 
+        phone: data.phone, 
         isRegistering: true,
         registrationData: {
-          name: form.name,
-          profileImage: form.profileImage
+          name: data.name,
+          profileImage: profileImage
         }
       });
     } catch (error) {
       console.error("Register Error:", error);
-      Alert.alert(
-        t('registration_failed', 'Registration Failed'), 
-        error.response?.data?.message || error.message || 'Something went wrong. Please try again.'
-      );
+      const msg = error.response?.data?.message || 'Something went wrong. Please try again.';
+      Toast.show({ type: 'error', text1: t('registration_failed', 'Registration Failed'), text2: msg });
     } finally {
       setLoading(false);
     }
@@ -94,7 +96,7 @@ export default function RegisterScreen({ navigation }) {
 
             <View style={styles.avatarSection}>
                 <TouchableOpacity onPress={handlePickImage} style={styles.avatarContainer}>
-                    {form.profileImage ? (
+                    {profileImage ? (
                         <View style={styles.imagePlaceholder}>
                             <Text style={styles.imageText}>Photo Uploaded</Text>
                         </View>
@@ -111,33 +113,49 @@ export default function RegisterScreen({ navigation }) {
             </View>
 
             <View style={styles.inputSection}>
-                <View style={styles.inputRow}>
+                <View style={[styles.inputRow, errors.name && { borderColor: '#ef4444' }]}>
                     <User size={20} color="#64748b" />
-                    <TextInput
-                        style={styles.textInput}
-                        placeholder={t('full_name', 'Full Name')}
-                        placeholderTextColor="#94a3b8"
-                        value={form.name}
-                        onChangeText={(v) => setForm({ ...form, name: v })}
+                    <Controller
+                        control={control}
+                        name="name"
+                        render={({ field: { onChange, onBlur, value } }) => (
+                            <TextInput
+                                style={styles.textInput}
+                                placeholder={t('full_name', 'Full Name')}
+                                placeholderTextColor="#94a3b8"
+                                value={value}
+                                onChangeText={onChange}
+                                onBlur={onBlur}
+                            />
+                        )}
                     />
                 </View>
+                {errors.name && <Text style={{ color: '#ef4444', fontSize: 13, marginTop: -15, marginBottom: 15, fontWeight: '600' }}>{errors.name.message}</Text>}
 
-                <View style={styles.inputRow}>
+                <View style={[styles.inputRow, errors.phone && { borderColor: '#ef4444' }]}>
                     <Phone size={20} color="#64748b" />
-                    <TextInput
-                        style={styles.textInput}
-                        placeholder={t('phone_number', 'Phone Number')}
-                        placeholderTextColor="#94a3b8"
-                        keyboardType="phone-pad"
-                        value={form.phone}
-                        onChangeText={(v) => setForm({ ...form, phone: v })}
+                    <Controller
+                        control={control}
+                        name="phone"
+                        render={({ field: { onChange, onBlur, value } }) => (
+                            <TextInput
+                                style={styles.textInput}
+                                placeholder={t('phone_number', 'Phone Number')}
+                                placeholderTextColor="#94a3b8"
+                                keyboardType="phone-pad"
+                                value={value}
+                                onChangeText={onChange}
+                                onBlur={onBlur}
+                            />
+                        )}
                     />
                 </View>
+                {errors.phone && <Text style={{ color: '#ef4444', fontSize: 13, marginTop: -15, marginBottom: 15, fontWeight: '600' }}>{errors.phone.message}</Text>}
 
                 <TouchableOpacity 
-                    style={[styles.button, (form.name && form.phone) ? styles.buttonActive : styles.buttonInactive]}
-                    onPress={handleRegister}
-                    disabled={loading}
+                    style={[styles.button, isValid ? styles.buttonActive : styles.buttonInactive]}
+                    onPress={handleSubmit(handleRegister)}
+                    disabled={loading || !isValid}
                 >
                     {loading ? (
                         <ActivityIndicator color="#fff" />

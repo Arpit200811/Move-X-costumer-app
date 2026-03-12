@@ -6,11 +6,12 @@ import {
 } from 'lucide-react-native';
 import io from 'socket.io-client';
 import api from '../services/api';
-import MapView, { Marker, Polyline, UrlTile, PROVIDER_DEFAULT } from 'react-native-maps';
+import MoveXMap from '../components/MoveXMap';
 // MapViewDirections removed to avoid Google Billing
 import { Surface, Badge, Button, Avatar, Modal, Portal, TextInput as PaperInput } from 'react-native-paper';
 import { useTranslation } from 'react-i18next';
 import { useWindowDimensions } from 'react-native';
+import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 
 // Derive Socket URL from API base URL (Stripping /api and using http instead of https for dev)
 const SOCKET_URL = api.defaults.baseURL.replace('/api', '');
@@ -28,6 +29,9 @@ export default function TrackingScreen({ route, navigation }) {
   const [message, setMessage] = useState('');
   const [chatVisible, setChatVisible] = useState(false);
   const [routeCoords, setRouteCoords] = useState([]);
+
+  const bottomSheetRef = useRef(null);
+  const snapPoints = React.useMemo(() => ['25%', '50%', '85%'], []);
 
   const recenterMap = () => {
     if (!driverLocation || !mapRef.current) return;
@@ -140,64 +144,13 @@ export default function TrackingScreen({ route, navigation }) {
     <View style={styles.container}>
       {/* Map Content */}
       <View style={styles.mapContainer}>
-        <MapView
-          ref={mapRef}
-          provider={PROVIDER_DEFAULT}
-          style={styles.map}
-          initialRegion={{
-            latitude: order.pickupCoords?.lat || 28.6139,
-            longitude: order.pickupCoords?.lng || 77.2090,
-            latitudeDelta: 0.05,
-            longitudeDelta: 0.05,
-          }}
-        >
-          <UrlTile 
-            urlTemplate="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            shouldReplaceMapContent={true}
-            maximumZ={19}
-          />
-          <Marker coordinate={{ latitude: pickupLat, longitude: pickupLng }}>
-             <Surface style={styles.markerContainer} elevation={2}>
-                <MapPin size={20} color="#2563EB" />
-             </Surface>
-          </Marker>
-
-          <Marker coordinate={{ latitude: destLat, longitude: destLng }}>
-             <Surface style={styles.markerContainer} elevation={2}>
-                <MapPin size={20} color="#EF4444" />
-             </Surface>
-          </Marker>
-
-          {driverLocation && (
-            <Marker coordinate={driverLocation} rotation={90} anchor={{ x: 0.5, y: 0.5 }}>
-                <Surface style={styles.driverMarker} elevation={4}>
-                    <Truck size={22} color="#fff" />
-                </Surface>
-            </Marker>
-          )}
-
-          {/* OSRM Free Routing */}
-          {routeCoords.length > 0 && (
-              <Polyline
-                coordinates={routeCoords}
-                strokeWidth={5}
-                strokeColor="#2563EB"
-              />
-          )}
-
-          {!driverLocation && (
-              <Polyline
-                coordinates={[
-                    { latitude: pickupLat, longitude: pickupLng },
-                    { latitude: destLat, longitude: destLng }
-                ]}
-                strokeColor="#2563EB"
-                strokeWidth={3}
-                lineDashPattern={[5, 5]}
-                opacity={0.3}
-              />
-          )}
-        </MapView>
+        <MoveXMap 
+            pickup={{ lat: pickupLat, lng: pickupLng }}
+            destination={{ lat: destLat, lng: destLng }}
+            driver={driverLocation ? { lat: driverLocation.latitude, lng: driverLocation.longitude } : null}
+            routeLine={routeCoords.length > 0 ? routeCoords.map(c => [c.latitude, c.longitude]) : []}
+            center={{ lat: pickupLat, lng: pickupLng }}
+        />
 
         <TouchableOpacity 
             style={styles.backButton} 
@@ -253,11 +206,15 @@ export default function TrackingScreen({ route, navigation }) {
         )}
       </View>
 
-      {/* Order Info Panel */}
-      <Surface style={styles.infoPanel} elevation={0}>
-        <View style={styles.dragHandle} />
-        
-        <ScrollView showsVerticalScrollIndicator={false}>
+      {/* Interactive Bottom Sheet */}
+      <BottomSheet
+        ref={bottomSheetRef}
+        index={1}
+        snapPoints={snapPoints}
+        handleIndicatorStyle={{ backgroundColor: '#e2e8f0', width: 40 }}
+        backgroundStyle={{ borderRadius: 32, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 15, elevation: 10 }}
+      >
+        <BottomSheetScrollView style={{ flex: 1, paddingHorizontal: 24, paddingVertical: 10 }} showsVerticalScrollIndicator={false}>
                 <View style={styles.panelHeader}>
                     <View style={styles.statusRow}>
                         <View style={styles.statusBadge}>
@@ -331,8 +288,8 @@ export default function TrackingScreen({ route, navigation }) {
                         <Text style={styles.cancelText}>{t('cancel_order', 'Cancel Order')}</Text>
                     </TouchableOpacity>
                 )}
-            </ScrollView>
-      </Surface>
+            </BottomSheetScrollView>
+      </BottomSheet>
 
       {/* Messaging Hub */}
       <Portal>
@@ -418,8 +375,6 @@ const styles = StyleSheet.create({
     chatToggleBtn: { position: 'absolute', top: 56, right: 24, width: 48, height: 48, backgroundColor: '#000', borderRadius: 24, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 5 },
     badgeContainer: { position: 'absolute', top: 0, right: 0, width: 20, height: 20, backgroundColor: '#f43f5e', borderRadius: 10, borderWeight: 2, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
     badgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
-    infoPanel: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, marginTop: -32, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, borderWeight: 1, borderColor: '#f1f5f9' },
-    dragHandle: { width: 40, height: 4, backgroundColor: '#e2e8f0', borderRadius: 2, selfCenter: 'center', alignSelf: 'center', marginBottom: 24 },
     panelHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
     statusRow: { flexDirection: 'row', alignItems: 'center' },
     statusBadge: { backgroundColor: '#eff6ff', px: 12, py: 4, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8, borderWeight: 1, borderColor: '#dbeafe' },

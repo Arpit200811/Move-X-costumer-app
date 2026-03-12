@@ -3,16 +3,26 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert } from 'reac
 import { ArrowLeft } from 'lucide-react-native';
 import api from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useForm, Controller } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
+import * as yup from 'yup';
+import Toast from 'react-native-toast-message';
+
+const verificationSchema = yup.object().shape({
+  code: yup.string().required('Code is required').length(4, 'Code must be 4 digits')
+});
 
 export default function VerificationScreen({ route, navigation }) {
   const { phone } = route.params;
-  const [code, setCode] = useState('');
+  const { control, handleSubmit, formState: { errors } } = useForm({
+    resolver: yupResolver(verificationSchema),
+    defaultValues: { code: '' },
+    mode: 'onChange'
+  });
 
-  const handleVerify = async () => {
-    if (code.length < 4) return Alert.alert('Invalid Code', 'Please enter the 4-digit verification code.');
-    
+  const handleVerify = async (data) => {
     try {
-      const response = await api.post('/auth/verify-otp', { phone, otp: code });
+      const response = await api.post('/auth/verify-otp', { phone, otp: data.code });
       const { token, user } = response.data;
 
       if (token) {
@@ -38,18 +48,19 @@ export default function VerificationScreen({ route, navigation }) {
         await AsyncStorage.setItem('movex_token', token);
         await AsyncStorage.setItem('movex_user', JSON.stringify(finalUser));
         
-        Alert.alert(
-          'Verified! ✅',
-          route.params.isRegistering ? 'Your account has been created successfully.' : 'Your phone number has been successfully verified.',
-          [{ text: 'Continue', onPress: () => navigation.replace('Home') }]
-        );
+        Toast.show({ 
+          type: 'success', 
+          text1: 'Verified! ✅', 
+          text2: route.params.isRegistering ? 'Your account has been created successfully.' : 'Your phone number has been verified.' 
+        });
+        setTimeout(() => navigation.replace('Home'), 1500);
       }
     } catch (error) {
-      Alert.alert(
-        'Verification Failed',
-        error.response?.data?.message || 'The verification code is incorrect.',
-        [{ text: 'Try Again' }]
-      );
+      Toast.show({ 
+        type: 'error', 
+        text1: 'Verification Failed', 
+        text2: error.response?.data?.message || 'The verification code is incorrect.' 
+      });
     }
   };
 
@@ -64,18 +75,26 @@ export default function VerificationScreen({ route, navigation }) {
         <Text style={styles.subtitle}>Enter the 4-digit code sent to {phone}</Text>
 
         <View style={styles.otpContainer}>
-          <TextInput
-            style={styles.otpInput}
-            maxLength={4}
-            keyboardType="number-pad"
-            placeholder="0000"
-            value={code}
-            onChangeText={setCode}
-            secureTextEntry
+          <Controller
+            control={control}
+            name="code"
+            render={({ field: { onChange, onBlur, value } }) => (
+              <TextInput
+                style={[styles.otpInput, errors.code && { borderBottomColor: '#ef4444' }]}
+                maxLength={4}
+                keyboardType="number-pad"
+                placeholder="0000"
+                value={value}
+                onChangeText={onChange}
+                onBlur={onBlur}
+                secureTextEntry
+              />
+            )}
           />
+          {errors.code && <Text style={{ color: '#ef4444', fontSize: 12, marginTop: 8, fontWeight: 'bold' }}>{errors.code.message}</Text>}
         </View>
 
-        <TouchableOpacity style={styles.button} onPress={handleVerify}>
+        <TouchableOpacity style={styles.button} onPress={handleSubmit(handleVerify)}>
           <Text style={styles.buttonText}>Verify & Proceed</Text>
         </TouchableOpacity>
 

@@ -5,19 +5,20 @@ import {
     Dimensions, StyleSheet, Platform, ActivityIndicator,
     Keyboard, useWindowDimensions, KeyboardAvoidingView
 } from 'react-native';
+import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { 
     ChevronLeft, Search, Mic, MapPin, SlidersHorizontal, 
     Clock, Star, Heart, Percent, Zap, ChevronDown,
     ArrowRight, Filter, ShoppingBag, Info
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { 
+import { 
     FadeInDown, FadeInUp, FadeIn, 
-    useSharedValue, useAnimatedStyle, withSpring, withTiming, withRepeat 
 } from 'react-native-reanimated';
 import api from '../services/api';
 import * as Haptics from 'expo-haptics';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import ServiceStatusBanner from '../components/ServiceStatusBanner';
 
 
 const FILTERS = [
@@ -51,7 +52,9 @@ export default function FoodDeliveryScreen({ navigation, route }) {
     const [filteredPlaces, setFilteredPlaces] = useState([]);
     const [loading, setLoading] = useState(true);
     const [userAddress, setUserAddress] = useState('Fetching location...');
+    const [locationLabel, setLocationLabel] = useState('DELIVER TO');
     const [activeFilter, setActiveFilter] = useState(null);
+    const [serviceStatus, setServiceStatus] = useState('checking');
 
     const triggerHaptic = (type = 'light') => {
         if (Platform.OS === 'web') return;
@@ -62,18 +65,62 @@ export default function FoodDeliveryScreen({ navigation, route }) {
 
     useEffect(() => {
         const fetchAddress = async () => {
+            let latitude, longitude;
+            
             if (route?.params?.userLocation) {
-                const { latitude, longitude } = route.params.userLocation;
+                latitude = route.params.userLocation.latitude;
+                longitude = route.params.userLocation.longitude;
+            } else {
+                let { status } = await Location.requestForegroundPermissionsAsync();
+                if (status === 'granted') {
+                    let loc = await Location.getCurrentPositionAsync({});
+                    latitude = loc.coords.latitude;
+                    longitude = loc.coords.longitude;
+                }
+            }
+
+            if (latitude && longitude) {
                 try {
                     const res = await fetch(`https://photon.komoot.io/reverse?lon=${longitude}&lat=${latitude}`);
                     const data = await res.json();
                     if (data.features?.length > 0) {
                         const props = data.features[0].properties;
-                        setUserAddress(props.name || props.street || props.city || 'Current Location');
+                        const address = props.name || props.street || props.city || 'Current Location';
+                        setUserAddress(address);
+                        const label = route?.params?.userLocation ? 'CURRENT LOCATION' : 'DELIVER TO';
+                        setLocationLabel(label);
+                        await AsyncStorage.setItem('last_known_food_loc', JSON.stringify({ latitude, longitude, address, label }));
                     }
-                } catch (e) { setUserAddress('New Delhi, India'); }
+                } catch (e) { 
+                    const stored = await AsyncStorage.getItem('last_known_food_loc');
+                    if (stored) {
+                        const parsed = JSON.parse(stored);
+                        setUserAddress(parsed.address);
+                        setLocationLabel(parsed.label || 'SAVED');
+                    }
+                    else setUserAddress('New Delhi, India'); 
+                }
             } else {
-                setUserAddress('Cyber City, Gurugram');
+                const stored = await AsyncStorage.getItem('last_known_food_loc');
+                if (stored) {
+                    const parsed = JSON.parse(stored);
+                    setUserAddress(parsed.address);
+                    setLocationLabel(parsed.label || 'SAVED');
+                }
+                else {
+                    setUserAddress('Cyber City, Gurugram');
+                    setLocationLabel('DELIVER TO');
+                }
+            }
+
+            // Check Serviceability
+            if (latitude && longitude) {
+                try {
+                    const sRes = await api.get(`/serviceable-check?lat=${latitude}&lng=${longitude}`);
+                    setServiceStatus(sRes.data.isServiceable ? 'serviceable' : 'unserviceable');
+                } catch (e) {
+                    setServiceStatus('serviceable');
+                }
             }
         };
         fetchAddress();
@@ -128,17 +175,13 @@ export default function FoodDeliveryScreen({ navigation, route }) {
             {/* Zomato Style Top Sticky Header */}
             <SafeAreaView style={styles.header}>
                 <View style={styles.topBar}>
-                    <TouchableOpacity style={styles.locationContainer} onPress={() => triggerHaptic()}>
-                        <View style={styles.locationIconBox}>
-                            <MapPin size={22} color="#E23744" fill="#E2374444" />
+                    <TouchableOpacity style={styles.locationContainer} onPress={() => navigation.navigate('Search')}>
+                        <View style={styles.locRow}>
+                            <MapPin size={12} color="#E23744" fill="#E23744" />
+                            <Text style={styles.locLabel}>{locationLabel}</Text>
+                            <ChevronDown size={14} color="#000" />
                         </View>
-                        <View style={styles.locationTextContainer}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <Text style={styles.locationMain}>Home</Text>
-                                <ChevronDown size={14} color="#000" style={{ marginLeft: 4 }} />
-                            </View>
-                            <Text style={styles.locationSub} numberOfLines={1}>{userAddress}</Text>
-                        </View>
+                        <Text style={styles.addressText} numberOfLines={1}>{userAddress}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.profileBox} onPress={() => navigation.navigate('Profile')}>
                         <Image 
@@ -184,6 +227,8 @@ export default function FoodDeliveryScreen({ navigation, route }) {
                 </ScrollView>
             </SafeAreaView>
 
+            <ServiceStatusBanner status={serviceStatus} />
+
             <ScrollView 
                 showsVerticalScrollIndicator={false} 
                 contentContainerStyle={{ paddingBottom: 100 }}
@@ -213,14 +258,14 @@ export default function FoodDeliveryScreen({ navigation, route }) {
                 </View>
                 <View style={styles.cuisineGrid}>
                     {CUISINES.map((cuisine, i) => (
-                        <Animated.View key={cuisine.id} entering={FadeInDown.delay(i * 100)} style={styles.cuisineItem}>
+                        <View key={cuisine.id} style={styles.cuisineItem}>
                             <TouchableOpacity style={styles.cuisinePressable} onPress={() => triggerHaptic()}>
                                 <View style={styles.cuisineCircle}>
                                     <Image source={{ uri: cuisine.img }} style={styles.cuisineImg} />
                                 </View>
                                 <Text style={styles.cuisineName}>{cuisine.name}</Text>
                             </TouchableOpacity>
-                        </Animated.View>
+                        </View>
                     ))}
                 </View>
 
@@ -237,13 +282,16 @@ export default function FoodDeliveryScreen({ navigation, route }) {
                 ) : (
                     <View style={styles.restaurantContainer}>
                         {filteredPlaces.map((rest, i) => (
-                            <Animated.View key={rest.id || i} entering={FadeInDown.delay(i * 100)}>
+                            <View key={rest.id || i}>
                                 <TouchableOpacity 
                                     style={styles.restCard}
                                     activeOpacity={0.9}
                                     onPress={() => {
                                         triggerHaptic('medium');
-                                        navigation.navigate('StoreMenu', { vendor: rest });
+                                        navigation.navigate('StoreMenu', { 
+                                            vendor: rest,
+                                            userLocation: route.params?.userLocation
+                                        });
                                     }}
                                 >
                                     <View style={styles.restImgWrapper}>
@@ -279,7 +327,7 @@ export default function FoodDeliveryScreen({ navigation, route }) {
                                         </View>
                                     </View>
                                 </TouchableOpacity>
-                            </Animated.View>
+                            </View>
                         ))}
                     </View>
                 )}
@@ -292,7 +340,7 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#fff' },
     header: { 
         backgroundColor: '#fff', 
-        paddingTop: Platform.OS === 'android' ? 10 : 0,
+        paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 10 : 10,
         borderBottomWidth: 1,
         borderBottomColor: '#f1f5f9',
         elevation: 4,

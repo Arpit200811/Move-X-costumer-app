@@ -9,15 +9,25 @@ import * as ImagePicker from 'expo-image-picker';
 import { useTranslation } from 'react-i18next';
 import api from '../services/api';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useForm, Controller } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
+import * as yup from 'yup';
+import Toast from 'react-native-toast-message';
+
+const profileSchema = yup.object().shape({
+  name: yup.string().required('Name is required').min(2, 'Name must be at least 2 characters'),
+  email: yup.string().required('Email is required').email('Valid email is required'),
+});
 
 export default function EditProfileScreen({ navigation }) {
   const { t } = useTranslation();
   const [user, setUser] = useState(null);
-  const [form, setForm] = useState({
-    name: '',
-    email: '',
-    avatar: null
+  const { control, handleSubmit, formState: { errors }, reset } = useForm({
+    resolver: yupResolver(profileSchema),
+    defaultValues: { name: '', email: '' },
+    mode: 'onChange'
   });
+  const [avatar, setAvatar] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -31,11 +41,8 @@ export default function EditProfileScreen({ navigation }) {
       if (raw) {
         const u = JSON.parse(raw);
         setUser(u);
-        setForm({
-          name: u.name || '',
-          email: u.email || '',
-          avatar: u.avatar || null
-        });
+        setAvatar(u.avatar || null);
+        reset({ name: u.name || '', email: u.email || '' });
       }
     } finally {
       setLoading(false);
@@ -57,27 +64,25 @@ export default function EditProfileScreen({ navigation }) {
     });
 
     if (!result.canceled) {
-      setForm({ ...form, avatar: result.assets[0].uri });
+      setAvatar(result.assets[0].uri);
     }
   };
 
-  const handleSave = async () => {
-    if (!form.name.trim()) return Alert.alert('Error', 'Name cannot be empty');
-    
+  const handleSave = async (data) => {
     setSaving(true);
     try {
       const res = await api.put('/auth/profile', {
-        name: form.name.trim(),
-        email: form.email.trim(),
-        avatar: form.avatar
+        name: data.name.trim(),
+        email: data.email.trim(),
+        avatar: avatar
       });
       
       const updatedUser = { ...user, ...res.data.user };
       await AsyncStorage.setItem('movex_user', JSON.stringify(updatedUser));
-      Alert.alert('Success', 'Profile updated successfully');
+      Toast.show({ type: 'success', text1: 'Success', text2: 'Profile updated successfully' });
       navigation.goBack();
     } catch (error) {
-      Alert.alert('Update Failed', error.response?.data?.message || 'Failed to update profile');
+      Toast.show({ type: 'error', text1: 'Update Failed', text2: error.response?.data?.message || 'Failed to update profile' });
     } finally {
       setSaving(false);
     }
@@ -93,7 +98,7 @@ export default function EditProfileScreen({ navigation }) {
           <ChevronLeft size={24} color="#0f172a" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t('edit_profile', 'Edit Profile')}</Text>
-        <TouchableOpacity onPress={handleSave} disabled={saving} style={styles.saveBtn}>
+        <TouchableOpacity onPress={handleSubmit(handleSave)} disabled={saving} style={styles.saveBtn}>
           {saving ? <ActivityIndicator size="small" color="#2563EB" /> : <Check size={24} color="#2563EB" />}
         </TouchableOpacity>
       </View>
@@ -107,7 +112,7 @@ export default function EditProfileScreen({ navigation }) {
             <TouchableOpacity onPress={handlePickImage} style={styles.avatarWrapper}>
               <LinearGradient colors={['#2563EB', '#1e40af']} style={styles.avatarGradient}>
                 <Image 
-                  source={{ uri: form.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?._id}` }} 
+                  source={{ uri: avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?._id}` }} 
                   style={styles.avatar} 
                 />
               </LinearGradient>
@@ -120,28 +125,44 @@ export default function EditProfileScreen({ navigation }) {
 
           <View style={styles.form}>
             <Text style={styles.inputLabel}>{(t('full_name', 'FULL NAME')).toUpperCase()}</Text>
-            <View style={styles.inputWrapper}>
+            <View style={[styles.inputWrapper, errors.name && { borderColor: '#ef4444' }]}>
               <User size={20} color="#64748b" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                value={form.name}
-                onChangeText={(v) => setForm({ ...form, name: v })}
-                placeholder="John Doe"
+              <Controller
+                control={control}
+                name="name"
+                render={({ field: { onChange, onBlur, value } }) => (
+                  <TextInput
+                    style={styles.input}
+                    value={value}
+                    onChangeText={onChange}
+                    onBlur={onBlur}
+                    placeholder="John Doe"
+                  />
+                )}
               />
             </View>
+            {errors.name && <Text style={{ color: '#ef4444', fontSize: 11, marginTop: 4, fontWeight: 'bold' }}>{errors.name.message}</Text>}
 
             <Text style={styles.inputLabel}>{(t('email_address', 'EMAIL ADDRESS')).toUpperCase()}</Text>
-            <View style={styles.inputWrapper}>
+            <View style={[styles.inputWrapper, errors.email && { borderColor: '#ef4444' }]}>
               <Mail size={20} color="#64748b" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                value={form.email}
-                onChangeText={(v) => setForm({ ...form, email: v })}
-                placeholder="john@example.com"
-                keyboardType="email-address"
-                autoCapitalize="none"
+              <Controller
+                control={control}
+                name="email"
+                render={({ field: { onChange, onBlur, value } }) => (
+                  <TextInput
+                    style={styles.input}
+                    value={value}
+                    onChangeText={onChange}
+                    onBlur={onBlur}
+                    placeholder="john@example.com"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                )}
               />
             </View>
+            {errors.email && <Text style={{ color: '#ef4444', fontSize: 11, marginTop: 4, fontWeight: 'bold' }}>{errors.email.message}</Text>}
 
             <Text style={styles.inputLabel}>{(t('phone_number', 'PHONE NUMBER')).toUpperCase()}</Text>
             <View style={[styles.inputWrapper, styles.disabledInput]}>

@@ -5,11 +5,12 @@ import {
   SafeAreaView, StyleSheet, Platform, StatusBar, useWindowDimensions, KeyboardAvoidingView
 } from 'react-native';
 import { ChevronLeft, MapPin, Package, ArrowRight, Zap, Target, Truck, ShieldCheck, Navigation, Banknote, CreditCard, Ticket, Wallet, Smartphone, CheckCircle, Percent, Home, Briefcase, User } from 'lucide-react-native';
-import MapView, { Marker, UrlTile, PROVIDER_DEFAULT } from 'react-native-maps';
+import MoveXMap from '../components/MoveXMap';
 import api from '../services/api';
 import { useTranslation } from 'react-i18next';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
+import Toast from 'react-native-toast-message';
 
 // Helper: Haversine distance between two coordinates in km
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -170,16 +171,20 @@ export default function CreateOrderScreen({ navigation, route }) {
 
   const handleCreate = async () => {
     if (!pickupText || !destinationText) {
-      return Alert.alert('Incomplete Details', 'Please select both pickup and destination locations.');
+      return Toast.show({ type: 'error', text1: 'Incomplete Details', text2: 'Please select both pickup and destination locations.' });
     }
 
     setLoading(true);
     try {
+      if (!pickupCoords || !destCoords) {
+          return Toast.show({ type: 'error', text1: 'Location Error', text2: 'Please select locations from the search results.' });
+      }
+
       const res = await api.post('/orders', {
         pickup: pickupText,
         destination: destinationText,
-        pickupCoords: pickupCoords || { lat: 28.6139, lng: 77.2090 },
-        destCoords: destCoords || { lat: 28.5355, lng: 77.3910 },
+        pickupCoords,
+        destCoords,
         serviceClass: selectedClass.name,
         packageType: type,
         parcelDescription: description || 'No description provided',
@@ -197,7 +202,7 @@ export default function CreateOrderScreen({ navigation, route }) {
       }
     } catch (error) {
       const msg = error.response?.data?.message || 'Something went wrong.';
-      Alert.alert('Booking Failed', msg.replace(/_/g, ' '));
+      Toast.show({ type: 'error', text1: 'Booking Failed', text2: msg.replace(/_/g, ' ') });
     } finally {
       setLoading(false);
     }
@@ -210,7 +215,7 @@ export default function CreateOrderScreen({ navigation, route }) {
           setCoupon(code);
           triggerHaptic('success');
       } else {
-          Alert.alert("Invalid", "This promo code is not valid.");
+          Toast.show({ type: 'error', text1: 'Invalid', text2: 'This promo code is not valid.' });
       }
   };
 
@@ -237,28 +242,11 @@ export default function CreateOrderScreen({ navigation, route }) {
 
         {/* OSM Map Preview */}
         <View style={styles.mapContainer}>
-          <MapView
-            ref={mapRef}
-            provider={PROVIDER_DEFAULT}
-            style={{ flex: 1 }}
-            initialRegion={{ latitude: pLat, longitude: pLng, latitudeDelta: 0.2, longitudeDelta: 0.2 }}
-          >
-            <UrlTile 
-              urlTemplate="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" 
-              shouldReplaceMapContent 
-              maximumZ={20} 
-            />
-            {pickupCoords && (
-              <Marker coordinate={{ latitude: pLat, longitude: pLng }}>
-                <View style={styles.pickupMarker}><Target size={12} color="#fff" /></View>
-              </Marker>
-            )}
-            {destCoords && (
-              <Marker coordinate={{ latitude: dLat, longitude: dLng }}>
-                <View style={styles.destMarker}><MapPin size={12} color="#fff" /></View>
-              </Marker>
-            )}
-          </MapView>
+          <MoveXMap 
+            pickup={pickupCoords}
+            destination={destCoords}
+            center={{ lat: pLat, lng: pLng }}
+          />
           {quote && (
             <View style={styles.routeBanner}>
               <Zap size={14} color="#2563EB" />
@@ -537,8 +525,8 @@ const styles = StyleSheet.create({
     dot: { width: 10, height: 10, borderRadius: 5 },
     locationLabel: { fontSize: 9, fontWeight: '800', color: '#94a3b8', letterSpacing: 1.5, textTransform: 'uppercase' },
     locationValue: { fontSize: 15, fontWeight: '700', color: '#0f172a', marginTop: 2 },
-    locationInput: { fontSize: 15, fontWeight: '700', color: '#0f172a', marginTop: 2, padding: 0 },
-    locationPlaceholder: { color: '#94a3b8', fontWeight: '500' },
+    locationInput: { fontSize: 15, fontWeight: '700', color: '#0f172a', marginTop: 2, paddingVertical: 8, minHeight: 40 },
+    locationPlaceholder: { color: '#94a3b8' },
     lineConnector: { width: 1, height: 20, backgroundColor: '#e2e8f0', marginLeft: 4.5, marginVertical: 2 },
     presetList: { marginTop: 16, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 12 },
     presetTitle: { fontSize: 10, fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 },

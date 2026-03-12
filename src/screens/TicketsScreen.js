@@ -16,10 +16,11 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  TextInput,
 } from "react-native";
 import {
   ChevronLeft,
-  Search,
+  Search as SearchIcon,
   Navigation as NavIcon,
   Calendar,
   Clock,
@@ -77,6 +78,11 @@ export default function TicketsScreen({ navigation }) {
 
   const [activeTab, setActiveTab] = useState("movies");
   const [activeGenre, setActiveGenre] = useState("All");
+  const [busFrom, setBusFrom] = useState("New Delhi");
+  const [busTo, setBusTo] = useState("Manali, HP");
+  const [busDate, setBusDate] = useState("Sat, 15 Oct 2026");
+  const [isSearchingBuses, setIsSearchingBuses] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
   const scrollY = useRef(new Animated.Value(0)).current;
 
   // Backend States
@@ -111,18 +117,37 @@ export default function TicketsScreen({ navigation }) {
     fetchTicketsData();
   };
 
+  const handleSearchBuses = async () => {
+    if (!busFrom || !busTo) {
+      Alert.alert("Missing Information", "Please enter both origin and destination cities.");
+      return;
+    }
+    setIsSearchingBuses(true);
+    try {
+      const res = await api.get(`/tickets/search/buses?from=${busFrom}&to=${busTo}&date=${busDate}`);
+      if (res.data?.success) {
+        setSearchResults(res.data.routes);
+      }
+    } catch (err) {
+      console.log("Error searching buses:", err);
+      Alert.alert("Neural Link Error", "Unable to synchronize with bus network.");
+    } finally {
+      setIsSearchingBuses(false);
+    }
+  };
+
   const handleBooking = (title) => {
     Alert.alert(
-      "Confirm Booking",
-      `Would you like to proceed with booking for "${title}"?`,
+      "Confirm Reservation",
+      `Initialize booking sequence for "${title}"?`,
       [
-        { text: "Cancel", style: "cancel" },
+        { text: "Abort", style: "cancel" },
         {
           text: "Confirm",
           onPress: () =>
             Alert.alert(
               "Success",
-              "Your request has been received. Our agent will contact you shortly!",
+              "Ticket reservation initialized. Our agent will contact you shortly!",
             ),
         },
       ],
@@ -175,7 +200,7 @@ export default function TicketsScreen({ navigation }) {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.featuredScroll}
       >
-        {ticketsData.movies.featured.map((movie) => (
+        {ticketsData?.movies?.featured?.map((movie) => (
           <TouchableOpacity
             key={movie.id}
             style={styles.featuredCard}
@@ -237,7 +262,7 @@ export default function TicketsScreen({ navigation }) {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.moviesScroll}
       >
-        {ticketsData.movies.showing.map((movie) => (
+        {ticketsData?.movies?.showing?.map((movie) => (
           <TouchableOpacity
             key={movie.id}
             style={styles.movieCard}
@@ -314,7 +339,7 @@ export default function TicketsScreen({ navigation }) {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.offersScroll}
       >
-        {ticketsData.buses.offers.map((offer) => (
+        {ticketsData?.buses?.offers?.map((offer) => (
           <TouchableOpacity key={offer.id} style={styles.offerCard}>
             <LinearGradient
               colors={[offer.color1, offer.color2]}
@@ -353,9 +378,13 @@ export default function TicketsScreen({ navigation }) {
             <Text style={[styles.heavyLabel, { color: theme.subtext }]}>
               Leaving from
             </Text>
-            <Text style={[styles.heavyValue, { color: theme.text }]}>
-              New Delhi
-            </Text>
+            <TextInput
+              style={[styles.heavyValue, { color: theme.text }]}
+              value={busFrom}
+              onChangeText={setBusFrom}
+              placeholder="Enter Origin"
+              placeholderTextColor={theme.subtext}
+            />
           </View>
         </View>
 
@@ -366,6 +395,11 @@ export default function TicketsScreen({ navigation }) {
               styles.heavySwapBtn,
               { backgroundColor: theme.bg, borderColor: theme.border },
             ]}
+            onPress={() => {
+              const temp = busFrom;
+              setBusFrom(busTo);
+              setBusTo(temp);
+            }}
           >
             <MapPin
               size={16}
@@ -381,9 +415,13 @@ export default function TicketsScreen({ navigation }) {
             <Text style={[styles.heavyLabel, { color: theme.subtext }]}>
               Going to
             </Text>
-            <Text style={[styles.heavyValue, { color: theme.text }]}>
-              Manali, HP
-            </Text>
+            <TextInput
+              style={[styles.heavyValue, { color: theme.text }]}
+              value={busTo}
+              onChangeText={setBusTo}
+              placeholder="Enter Destination"
+              placeholderTextColor={theme.subtext}
+            />
           </View>
         </View>
 
@@ -397,13 +435,18 @@ export default function TicketsScreen({ navigation }) {
             <Text style={[styles.heavyLabel, { color: theme.subtext }]}>
               Date of Journey
             </Text>
-            <Text style={[styles.heavyValue, { color: theme.text }]}>
-              Sat, 15 Oct 2026
-            </Text>
+            <TextInput
+              style={[styles.heavyValue, { color: theme.text }]}
+              value={busDate}
+              onChangeText={setBusDate}
+              placeholder="Select Date"
+              placeholderTextColor={theme.subtext}
+            />
           </View>
           <View style={styles.quickDateRow}>
             <TouchableOpacity
               style={[styles.quickDateBtn, { backgroundColor: "#eff6ff" }]}
+              onPress={() => setBusDate("Today")}
             >
               <Text style={[styles.quickDateText, { color: "#3b82f6" }]}>
                 Today
@@ -414,6 +457,7 @@ export default function TicketsScreen({ navigation }) {
                 styles.quickDateBtn,
                 { backgroundColor: isDark ? "#1e293b" : "#f1f5f9" },
               ]}
+              onPress={() => setBusDate("Tomorrow")}
             >
               <Text style={[styles.quickDateText, { color: theme.text }]}>
                 Tmrw
@@ -425,20 +469,25 @@ export default function TicketsScreen({ navigation }) {
         <TouchableOpacity
           style={[styles.searchBusBtn, { backgroundColor: "#3b82f6" }]}
           activeOpacity={0.8}
-          onPress={() => handleBooking("Bus from New Delhi to Manali")}
+          onPress={handleSearchBuses}
+          disabled={isSearchingBuses}
         >
-          <Text style={styles.searchBusText}>FIND BUSES</Text>
+          {isSearchingBuses ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Text style={styles.searchBusText}>FIND BUSES</Text>
+          )}
         </TouchableOpacity>
       </View>
 
       <View style={styles.sectionHeader}>
         <Text style={[styles.sectionHeading, { color: theme.text }]}>
-          Trending Routes
+          {searchResults.length > 0 ? "Search Results" : "Trending Routes"}
         </Text>
       </View>
 
       <View style={{ paddingHorizontal: 16, gap: 16 }}>
-        {ticketsData.buses.routes.map((bus) => (
+        {(searchResults.length > 0 ? searchResults : ticketsData?.buses?.routes || []).map((bus) => (
           <TouchableOpacity
             key={bus.id}
             style={[
@@ -446,6 +495,7 @@ export default function TicketsScreen({ navigation }) {
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
             activeOpacity={0.9}
+            onPress={() => handleBooking(`${bus.operator} to ${bus.to}`)}
           >
             <View style={styles.busHeader}>
               <View>
@@ -488,7 +538,7 @@ export default function TicketsScreen({ navigation }) {
 
             <View style={[styles.busFooter, { borderTopColor: theme.border }]}>
               <View style={styles.amenities}>
-                {bus.amenities.map((am, i) => (
+                {bus.amenities?.map((am, i) => (
                   <View
                     key={i}
                     style={[
@@ -511,6 +561,14 @@ export default function TicketsScreen({ navigation }) {
             </View>
           </TouchableOpacity>
         ))}
+        {searchResults.length > 0 && (
+          <TouchableOpacity 
+            style={{ padding: 12, alignItems: 'center' }}
+            onPress={() => setSearchResults([])}
+          >
+            <Text style={{ color: '#3b82f6', fontWeight: '700' }}>Clear Search</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -529,7 +587,7 @@ export default function TicketsScreen({ navigation }) {
       </View>
 
       <View style={{ paddingHorizontal: 16, gap: 24, paddingBottom: 32 }}>
-        {ticketsData.events.map((event) => (
+        {ticketsData?.events?.map((event) => (
           <TouchableOpacity
             key={event.id}
             style={[
@@ -650,7 +708,7 @@ export default function TicketsScreen({ navigation }) {
             },
           ]}
         >
-          <Search size={22} color={theme.text} />
+          <SearchIcon size={22} color={theme.text} />
         </TouchableOpacity>
       </View>
 
@@ -728,7 +786,7 @@ export default function TicketsScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
+    paddingTop: Platform.OS === "android" ? (StatusBar.currentHeight || 24) + 10 : 10,
   },
   animatedHeader: {
     position: "absolute",

@@ -14,7 +14,7 @@ import {
   RefreshControl,
 } from "react-native";
 import {
-  Search,
+  Search as SearchIcon,
   Bell,
   MapPin,
   Zap,
@@ -40,6 +40,7 @@ import api from "../services/api";
 import * as Location from "expo-location";
 import { LinearGradient } from "expo-linear-gradient";
 import { registerForPushNotificationsAsync } from "../services/notifications";
+import Skeleton from "../components/Skeleton";
 
 const { width } = Dimensions.get("window");
 
@@ -108,11 +109,22 @@ export default function HomeScreen({ navigation }) {
   const [locationName, setLocationName] = useState("Locating...");
   const [activeOrders, setActiveOrders] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [userFirstName, setUserFirstName] = useState("Guest");
+
+  const fetchActiveOrders = useCallback(async () => {
+    try {
+      const res = await api.get("/orders/my");
+      const orders = res.data.orders || [];
+      const TERMINAL = ["DELIVERED", "CANCELLED", "REJECTED", "FAILED"];
+      setActiveOrders(orders.filter((o) => !TERMINAL.includes(o.status)));
+    } catch (_) {}
+  }, []);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
+      setIsLoading(true);
       const rawUser = await AsyncStorage.getItem("movex_user");
       if (mounted && rawUser) {
         const u = JSON.parse(rawUser);
@@ -133,25 +145,17 @@ export default function HomeScreen({ navigation }) {
         }
       }
 
+      await fetchActiveOrders();
+      setIsLoading(false);
       registerForPushNotificationsAsync();
     })();
 
-    fetchActiveOrders();
     const pollInterval = setInterval(fetchActiveOrders, 30000);
     return () => {
       mounted = false;
       clearInterval(pollInterval);
     };
-  }, []);
-
-  const fetchActiveOrders = useCallback(async () => {
-    try {
-      const res = await api.get("/orders/my");
-      const orders = res.data.orders || [];
-      const TERMINAL = ["DELIVERED", "CANCELLED", "REJECTED", "FAILED"];
-      setActiveOrders(orders.filter((o) => !TERMINAL.includes(o.status)));
-    } catch (_) {}
-  }, []);
+  }, [fetchActiveOrders]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -184,7 +188,10 @@ export default function HomeScreen({ navigation }) {
           <View style={styles.avatar}>
             <MapPin size={18} color="#fff" />
           </View>
-          <View style={styles.locationContainer}>
+          <TouchableOpacity 
+            style={styles.locationContainer}
+            onPress={() => navigation.navigate("Search")}
+          >
             <View style={styles.locationRow}>
               <Text style={[styles.locationLabel, { color: theme.text }]}>
                 {t("home", "Home")}{" "}
@@ -197,7 +204,7 @@ export default function HomeScreen({ navigation }) {
             >
               {locationName}
             </Text>
-          </View>
+          </TouchableOpacity>
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity style={styles.headerIconBtn}>
@@ -239,7 +246,7 @@ export default function HomeScreen({ navigation }) {
             ]}
             onPress={() => navigation.navigate("Search")}
           >
-            <Search size={22} color="#f43f5e" style={{ marginRight: 12 }} />
+            <SearchIcon size={22} color="#f43f5e" style={{ marginRight: 12 }} />
             <Text style={[styles.searchText, { color: theme.subtext }]}>
               {t("search_hint", "Restaurant name or dish...")}
             </Text>
@@ -498,51 +505,61 @@ export default function HomeScreen({ navigation }) {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.brandsScroll}
           >
-            {[
-              {
-                name: "MoveX Cafe",
-                img: "https://images.unsplash.com/photo-1544787210-2827448b3af3?w=400",
-                time: "15 mins",
-                discount: "50% OFF",
-              },
-              {
-                name: "MoveX Chicken",
-                img: "https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=400",
-                time: "25 mins",
-                discount: "FREE DELIVERY",
-              },
-              {
-                name: "MoveX Burger",
-                img: "https://images.unsplash.com/photo-1572802419224-296b0aeee0d9?w=400",
-                time: "20 mins",
-                discount: "60% OFF",
-              },
-            ].map((b, i) => (
-              <TouchableOpacity
-                key={i}
-                style={[styles.brandCard, { backgroundColor: theme.card }]}
-              >
-                <View style={styles.brandImgContainer}>
-                  <Image source={{ uri: b.img }} style={styles.brandImg} />
-                  <View style={styles.discountBadge}>
-                    <Text style={styles.discountText}>{b.discount}</Text>
-                  </View>
-                  <View style={styles.timeBadge}>
-                    <Clock size={10} color="#000" />
-                    <Text style={styles.timeText}>{b.time}</Text>
-                  </View>
+            {isLoading ? (
+              [1, 2, 3].map((_, i) => (
+                <View key={i} style={[styles.brandCard, { backgroundColor: theme.card }]}>
+                  <Skeleton width={160} height={100} borderRadius={16} />
+                  <Skeleton width={100} height={15} borderRadius={4} style={{ marginTop: 8 }} />
+                  <Skeleton width={60} height={10} borderRadius={4} style={{ marginTop: 4 }} />
                 </View>
-                <Text style={[styles.brandName, { color: theme.text }]}>
-                  {b.name}
-                </Text>
-                <View style={styles.brandMeta}>
-                  <Star size={12} color="#16a34a" fill="#16a34a" />
-                  <Text style={styles.brandRating}>4.5</Text>
-                  <Text style={styles.brandDot}> • </Text>
-                  <Text style={styles.brandPrice}>₹150 for one</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
+              ))
+            ) : (
+              [
+                {
+                  name: "MoveX Cafe",
+                  img: "https://images.unsplash.com/photo-1544787210-2827448b3af3?w=400",
+                  time: "15 mins",
+                  discount: "50% OFF",
+                },
+                {
+                  name: "MoveX Chicken",
+                  img: "https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=400",
+                  time: "25 mins",
+                  discount: "FREE DELIVERY",
+                },
+                {
+                  name: "MoveX Burger",
+                  img: "https://images.unsplash.com/photo-1572802419224-296b0aeee0d9?w=400",
+                  time: "20 mins",
+                  discount: "60% OFF",
+                },
+              ].map((b, i) => (
+                <TouchableOpacity
+                  key={i}
+                  style={[styles.brandCard, { backgroundColor: theme.card }]}
+                >
+                  <View style={styles.brandImgContainer}>
+                    <Image source={{ uri: b.img }} style={styles.brandImg} />
+                    <View style={styles.discountBadge}>
+                      <Text style={styles.discountText}>{b.discount}</Text>
+                    </View>
+                    <View style={styles.timeBadge}>
+                      <Clock size={10} color="#000" />
+                      <Text style={styles.timeText}>{b.time}</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.brandName, { color: theme.text }]}>
+                    {b.name}
+                  </Text>
+                  <View style={styles.brandMeta}>
+                    <Star size={12} color="#16a34a" fill="#16a34a" />
+                    <Text style={styles.brandRating}>4.5</Text>
+                    <Text style={styles.brandDot}> • </Text>
+                    <Text style={styles.brandPrice}>₹150 for one</Text>
+                  </View>
+                </TouchableOpacity>
+              ))
+            )}
           </ScrollView>
         </View>
 

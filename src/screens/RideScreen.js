@@ -5,19 +5,21 @@ import {
     Dimensions, StyleSheet, Platform, Alert, KeyboardAvoidingView,
     ActivityIndicator, Keyboard, useWindowDimensions
 } from 'react-native';
+import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { 
-    ChevronLeft, Search, MapPin, Navigation, 
+    ChevronLeft, Search as SearchIcon, MapPin, Navigation, 
     Zap, Clock, Shield, ChevronRight, Menu, Home, Briefcase, Star, X
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import MapView, { Marker, UrlTile, PROVIDER_DEFAULT } from 'react-native-maps';
-import Animated, { FadeInDown, SlideInRight, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import MoveXMap from '../components/MoveXMap';
+
 import { useTranslation } from 'react-i18next';
 import api from '../services/api';
 import { TrendingUp, Info, Map as MapIcon, History as HistoryIcon, Clock3 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { withRepeat, withSequence, withTiming, useSharedValue as useSV } from 'react-native-reanimated';
+import ServiceStatusBanner from '../components/ServiceStatusBanner';
+
 
 
 const VEHICLES = [
@@ -49,6 +51,7 @@ export default function RideScreen({ navigation, route }) {
     const [searchField, setSearchField] = useState(null); // 'pickup' | 'dest'
     const [searchLoading, setSearchLoading] = useState(false);
     const [recentSearches, setRecentSearches] = useState([]);
+    const [serviceStatus, setServiceStatus] = useState('checking');
 
     // Load recent history
     useEffect(() => {
@@ -81,20 +84,42 @@ export default function RideScreen({ navigation, route }) {
 
     // Auto-detect live location and reverse geocode
     useEffect(() => {
-        const loc = route?.params?.userLocation;
-        if (loc) {
-            setPickupCoords({ lat: loc.latitude, lng: loc.longitude });
-            fetch(`https://photon.komoot.io/reverse?lon=${loc.longitude}&lat=${loc.latitude}`)
-                .then(res => res.json())
-                .then(data => {
+        const fetchCurrentLocation = async () => {
+            let lat, lng;
+            if (route?.params?.userLocation) {
+                lat = route.params.userLocation.latitude;
+                lng = route.params.userLocation.longitude;
+            } else {
+                let { status } = await Location.requestForegroundPermissionsAsync();
+                if (status === 'granted') {
+                    let loc = await Location.getCurrentPositionAsync({});
+                    lat = loc.coords.latitude;
+                    lng = loc.coords.longitude;
+                }
+            }
+
+            if (lat && lng) {
+                setPickupCoords({ lat, lng });
+                try {
+                    const res = await fetch(`https://photon.komoot.io/reverse?lon=${lng}&lat=${lat}`);
+                    const data = await res.json();
                     if (data.features && data.features.length > 0) {
                         const props = data.features[0].properties;
                         const address = props.name || props.street || props.city || props.state || 'Current Location';
                         setPickup(address);
                     }
-                })
-                .catch(e => console.log('Reverse geocode error:', e));
-        }
+                } catch (e) {
+                    console.log('Reverse geocode error:', e);
+                }
+
+                // Service Check
+                try {
+                    const sRes = await api.get(`/serviceable-check?lat=${lat}&lng=${lng}`);
+                    setServiceStatus(sRes.data.isServiceable ? 'serviceable' : 'unserviceable');
+                } catch (e) { setServiceStatus('serviceable'); }
+            }
+        };
+        fetchCurrentLocation();
     }, [route?.params?.userLocation]);
 
     const searchLocation = async (text, field) => {
@@ -168,25 +193,14 @@ export default function RideScreen({ navigation, route }) {
         <View style={styles.container}>
             <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
             
-            <MapView 
-                provider={PROVIDER_DEFAULT}
-                style={styles.map}
-                initialRegion={{
-                    latitude: route?.params?.userLocation?.latitude || 28.6139,
-                    longitude: route?.params?.userLocation?.longitude || 77.2090,
-                    latitudeDelta: 0.05,
-                    longitudeDelta: 0.05,
+            <MoveXMap 
+                pickup={pickupCoords}
+                destination={destCoords}
+                center={{ 
+                    lat: route?.params?.userLocation?.latitude || 28.6139, 
+                    lng: route?.params?.userLocation?.longitude || 77.2090 
                 }}
-            >
-                <UrlTile 
-                    urlTemplate="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                    shouldReplaceMapContent={true}
-                    maximumZ={20}
-                />
-                <Marker coordinate={{ latitude: pickupCoords.lat, longitude: pickupCoords.lng }}>
-                    <PulseMarker color="#2563EB" />
-                </Marker>
-            </MapView>
+            />
 
             <KeyboardAvoidingView 
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -206,7 +220,7 @@ export default function RideScreen({ navigation, route }) {
                     </View>
                 )}
  
-                <Animated.View 
+                <View 
                     style={[
                         styles.searchCard, 
                         searchField ? styles.searchCardFull : styles.searchCardFloating,
@@ -248,7 +262,7 @@ export default function RideScreen({ navigation, route }) {
                     {searchResults.length > 0 ? (
                         <ScrollView style={styles.resultsScroll} keyboardShouldPersistTaps="handled">
                             {searchResults.map((loc, i) => (
-                                <Animated.View key={i} entering={FadeInDown.delay(i * 50)}>
+                                <View key={i}>
                                     <TouchableOpacity style={styles.searchItem} onPress={() => selectLocation(loc)}>
                                         <View style={styles.resultIconBox}><MapPin size={18} color="#2563EB" /></View>
                                         <View style={{ flex: 1, marginLeft: 12 }}>
@@ -257,7 +271,7 @@ export default function RideScreen({ navigation, route }) {
                                         </View>
                                         <ChevronRight size={16} color="#cbd5e1" />
                                     </TouchableOpacity>
-                                </Animated.View>
+                                    </View>
                             ))}
                         </ScrollView>
                     ) : searchField && (
@@ -336,7 +350,9 @@ export default function RideScreen({ navigation, route }) {
                             )}
                         </ScrollView>
                     )}
-                </Animated.View>
+                </View>
+
+                <ServiceStatusBanner status={serviceStatus} />
 
                 {!searchField && (
                     <View style={[styles.bottomSheet, { width: width }]}>
@@ -344,7 +360,13 @@ export default function RideScreen({ navigation, route }) {
                             <View style={styles.handle} />
                             <View style={styles.titleRow}>
                                 <View>
-                                    <Text style={styles.sheetTitle}>Choose a trip</Text>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                        <Text style={styles.sheetTitle}>Trip Neural-Analysis</Text>
+                                        <View style={styles.liveIndicator}>
+                                            <View style={styles.liveDot} />
+                                            <Text style={styles.liveText}>LIVE</Text>
+                                        </View>
+                                    </View>
                                     {quote?.surgeMultiplier > 1 && (
                                         <View style={styles.surgeBadge}>
                                             <TrendingUp size={10} color="#fff" />
@@ -363,7 +385,7 @@ export default function RideScreen({ navigation, route }) {
                             {VEHICLES.map((v, idx) => {
                                 const isSelected = selectedVehicle === v.id;
                                 return (
-                                    <Animated.View key={v.id} entering={SlideInRight.delay(idx * 150)}>
+                                    <View key={v.id}>
                                         <TouchableOpacity 
                                             activeOpacity={0.8}
                                             style={[styles.vehicleCard, isSelected && styles.selectedCard]}
@@ -399,20 +421,20 @@ export default function RideScreen({ navigation, route }) {
                                                 </View>
                                             </View>
                                             {isSelected && (
-                                                <Animated.View entering={FadeInDown} style={styles.checkMarker}>
+                                                <View style={styles.checkMarker}>
                                                     <Zap size={14} color="#fff" fill="#fff" />
-                                                </Animated.View>
+                                                </View>
                                             )}
                                         </TouchableOpacity>
-                                    </Animated.View>
+                                    </View>
                                 );
                             })}
                         </ScrollView>
 
                         <View style={styles.footer}>
                             <TouchableOpacity 
-                                style={[styles.confirmBtn, (!quote || loading) && styles.btnDisabled]} 
-                                disabled={!quote || loading || loadingQuote}
+                                style={[styles.confirmBtn, (!quote || loading || serviceStatus === 'unserviceable') && styles.btnDisabled]} 
+                                disabled={!quote || loading || loadingQuote || serviceStatus === 'unserviceable'}
                                 onPress={async () => {
                                     triggerHaptic('medium');
                                     setLoading(true);
@@ -455,25 +477,7 @@ export default function RideScreen({ navigation, route }) {
     );
 }
 
-const PulseMarker = React.memo(({ color }) => {
-    const scale = useSV(1);
-    const opacity = useSV(0.6);
-    useEffect(() => {
-        scale.value = withRepeat(withTiming(2.2, { duration: 1800 }), -1, false);
-        opacity.value = withRepeat(withTiming(0, { duration: 1800 }), -1, false);
-    }, []);
-    const ringStyle = useAnimatedStyle(() => ({
-        transform: [{ scale: scale.value }],
-        opacity: opacity.value,
-        backgroundColor: color
-    }));
-    return (
-        <View style={styles.pickupMarker}>
-            <Animated.View style={[styles.pulseRing, ringStyle]} />
-            <View style={[styles.markerInner, { backgroundColor: color }]} />
-        </View>
-    );
-});
+
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#0f172a' },
@@ -566,5 +570,8 @@ const styles = StyleSheet.create({
     btnDisabled: { opacity: 0.5 },
     searchItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, gap: 14, borderBottomWidth: 1, borderBottomColor: '#f8fafc' },
     searchName: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
-    searchCity: { fontSize: 12, color: '#94a3b8', fontWeight: '500' }
+    searchCity: { fontSize: 12, color: '#94a3b8', fontWeight: '500' },
+    liveIndicator: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0fdf4', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, gap: 4 },
+    liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#10b981' },
+    liveText: { fontSize: 9, fontWeight: '900', color: '#10b981' }
 });
