@@ -191,6 +191,7 @@ export default function CreateOrderScreen({ navigation, route }) {
         weight: '1',
         paymentMethod: paymentMethod,
         total: finalTotal,
+        promoCode: appliedPromo?.code,
         deliveryFee: parseFloat(quote?.total || selectedClass.price),
       });
 
@@ -208,14 +209,29 @@ export default function CreateOrderScreen({ navigation, route }) {
     }
   };
 
-  const handleApplyPromo = (codeToApply = coupon) => {
+  const handleApplyPromo = async (codeToApply = coupon) => {
       const code = codeToApply.toUpperCase();
-      if (code === 'FIRST50' || code === 'FREEDEL') {
-          setAppliedPromo({ code, discount: code === 'FIRST50' ? 50 : 40 });
-          setCoupon(code);
-          triggerHaptic('success');
-      } else {
-          Toast.show({ type: 'error', text1: 'Invalid', text2: 'This promo code is not valid.' });
+      if (!code) return;
+      
+      setLoading(true);
+      try {
+          const res = await api.post('/marketing/validate-coupon', {
+              code,
+              cartAmount: parseFloat(quote?.total || selectedClass.price),
+              serviceType: type ? type.toUpperCase() : 'GENERAL'
+          });
+
+          if (res.data.success) {
+              setAppliedPromo({ code, discount: parseFloat(res.data.discount) });
+              setCoupon(code);
+              triggerHaptic('success');
+              Toast.show({ type: 'success', text1: 'Promo Applied', text2: `₹${res.data.discount} discount active.` });
+          }
+      } catch (err) {
+          const msg = err.response?.data?.message || 'This code is invalid.';
+          Toast.show({ type: 'error', text1: 'Invalid Code', text2: msg.replace(/_/g, ' ') });
+      } finally {
+          setLoading(false);
       }
   };
 

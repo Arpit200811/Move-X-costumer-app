@@ -52,7 +52,19 @@ const styles = StyleSheet.create({
     payActionText: { color: '#fff', fontSize: 20, fontWeight: '900' },
     payActionSub: { color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '600', marginTop: 2 },
     payRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    placeOrderText: { color: '#fff', fontSize: 16, fontWeight: '900' }
+    placeOrderText: { color: '#fff', fontSize: 16, fontWeight: '900' },
+    
+    // Promo Styles
+    promoInputRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    promoInput: { flex: 1, height: 44, backgroundColor: '#f1f5f9', borderRadius: 12, paddingHorizontal: 15, fontSize: 14, fontWeight: '800', color: '#1e293b' },
+    applyBtn: { backgroundColor: '#0f172a', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
+    applyBtnText: { color: '#fff', fontWeight: '900', fontSize: 12 },
+    appliedPromoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    appliedInfo: { flexDirection: 'row', alignItems: 'center' },
+    appliedCode: { fontSize: 15, fontWeight: '900', color: '#0f172a' },
+    appliedSub: { fontSize: 11, color: '#10B981', fontWeight: '700', marginTop: 1 },
+    removeText: { color: '#ef4444', fontSize: 12, fontWeight: '800' },
+    promoError: { color: '#ef4444', fontSize: 11, fontWeight: '700', marginTop: 10, marginLeft: 32 }
 });
 
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -87,9 +99,45 @@ export default function CartCheckoutScreen({ route, navigation }) {
     const [quote, setQuote] = useState(null);
     const [discount, setDiscount] = useState(0);
     const [isCalculating, setIsCalculating] = useState(true);
+    const [promoApplied, setPromoApplied] = useState(false);
+    const [promoStatus, setPromoStatus] = useState(''); // '', 'success', 'error'
     const [promoCode, setPromoCode] = useState('');
     const [tempPromo, setTempPromo] = useState('');
-    const [promoApplied, setPromoApplied] = useState(false);
+
+    const applyPromoCode = async () => {
+        if (!tempPromo) return;
+        setIsCalculating(true);
+        try {
+            const code = tempPromo.toUpperCase();
+            const res = await api.post('/marketing/validate-coupon', {
+                code,
+                cartAmount: parseFloat(total) || 0,
+                serviceType: 'FOOD' // Default context
+            });
+
+            if (res.data.success) {
+                setDiscount(parseFloat(res.data.discount));
+                setPromoCode(code);
+                setPromoApplied(true);
+                setPromoStatus('success');
+                Alert.alert('Success', `₹${res.data.discount} discount applied successfully!`);
+            }
+        } catch (err) {
+            setPromoStatus('error');
+            const msg = err.response?.data?.message || 'This promo code is not valid.';
+            Alert.alert('Invalid Code', msg.replace(/_/g, ' '));
+        } finally {
+            setIsCalculating(false);
+        }
+    };
+
+    const removePromo = () => {
+        setDiscount(0);
+        setPromoCode('');
+        setTempPromo('');
+        setPromoApplied(false);
+        setPromoStatus('');
+    };
     const [paymentMethod, setPaymentMethod] = useState('Cash');
     const [walletBalance, setWalletBalance] = useState(0);
     const [userAddress, setUserAddress] = useState('Locating...');
@@ -171,6 +219,11 @@ export default function CartCheckoutScreen({ route, navigation }) {
     };
 
     useEffect(() => {
+        if (!vendor) {
+            Alert.alert('Error', 'Vendor data missing. Please go back and try again.');
+            navigation.goBack();
+            return;
+        }
         (async () => {
             try {
                 const res = await api.get('/auth/profile');
@@ -184,31 +237,36 @@ export default function CartCheckoutScreen({ route, navigation }) {
     }, []);
 
     const handleCheckout = async () => {
+        if (loading || isCalculating) return;
         setLoading(true);
         try {
-            const deliveryFee = parseFloat(quote?.deliveryFee || 30);
-            const taxAmount = parseFloat(quote?.tax || 0);
-            const grandTotal = (total + deliveryFee + taxAmount - discount);
+            // DEFENSIVE: Ensure all values are actual numbers to prevent NaN crash
+            const deliveryFee = parseFloat(quote?.deliveryFee || 30) || 0;
+            const taxAmount = parseFloat(quote?.tax || 0) || 0;
+            const subTotal = (parseFloat(total) || 0);
+            const discountVal = (parseFloat(discount) || 0);
+            
+            const grandTotal = Math.max(0, (subTotal + deliveryFee + taxAmount - discountVal));
 
             const orderPayload = {
                 serviceClass: 'Economy',
-                pickup: vendor.name,
+                pickup: vendor?.name || 'Unknown Vendor',
                 destination: userAddress,
                 pickupCoords: pickupCoords,
                 destCoords: destCoords,
-                itemsTotal: total,
+                itemsTotal: subTotal,
                 deliveryFee: deliveryFee,
                 tax: taxAmount,
                 taxData: { tax: taxAmount, currency: 'INR' },
                 total: grandTotal,
                 currency: 'INR',
-                partnerId: vendor._id,
+                partnerId: vendor?._id,
                 items: items, 
                 status: 'PENDING',
                 paymentMethod,
-                promoCode,
+                promoCode: promoApplied ? promoCode : null,
                 discount,
-                parcelDescription: `${items.length} items from ${vendor.name}`
+                parcelDescription: `${items?.length || 0} items from ${vendor?.name || 'Vendor'}`
             };
 
             const response = await api.post('/orders', orderPayload);
@@ -236,7 +294,7 @@ export default function CartCheckoutScreen({ route, navigation }) {
                 // Request was made but no response (Network Error)
                 Alert.alert(
                     'Signal Lost',
-                    'Unable to reach MoveX Command Center. Check if your local backend is running (npm run dev) and if your phone is on the same Wi-Fi as your PC (IP: 10.16.15.197).',
+                    'Unable to reach MoveX Command Center. Please check your internet connection and try again.',
                     [{ text: 'Retry Signal', onPress: handleCheckout }]
                 );
             } else {
@@ -248,7 +306,14 @@ export default function CartCheckoutScreen({ route, navigation }) {
         }
     };
 
-    const displayTotal = quote ? (total + parseFloat(quote.deliveryFee || 30) + parseFloat(quote.tax || 0) - discount).toFixed(2) : '...';
+    // CRITICAL: Defensive total calculation for the display
+    const calcSubTotal = (parseFloat(total) || 0);
+    const calcDelivery = (parseFloat(quote?.deliveryFee || 30)) || 0;
+    const calcTax = (parseFloat(quote?.tax || 0)) || 0;
+    const calcDiscount = (parseFloat(discount) || 0);
+    
+    const calcTotalVal = quote ? (calcSubTotal + calcDelivery + calcTax - calcDiscount) : 0;
+    const displayTotal = calcTotalVal > 0 ? calcTotalVal.toFixed(2) : (0).toFixed(2);
 
     return (
         <SafeAreaView style={styles.safeArea}>
@@ -283,6 +348,49 @@ export default function CartCheckoutScreen({ route, navigation }) {
                             </View>
                         </View>
                      </View>
+                </Animated.View>
+
+                {/* Promo Code Section */}
+                <Animated.View entering={FadeInDown.delay(150)}>
+                    <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Offers & Benefits</Text>
+                    <View style={styles.card}>
+                        {!promoApplied ? (
+                            <View style={styles.promoInputRow}>
+                                <Zap size={20} color="#f59e0b" fill="#f59e0b" />
+                                <TextInput 
+                                    style={styles.promoInput}
+                                    placeholder="Enter Coupon Code"
+                                    placeholderTextColor="#94a3b8"
+                                    value={tempPromo}
+                                    onChangeText={setTempPromo}
+                                    autoCapitalize="characters"
+                                />
+                                <TouchableOpacity 
+                                    style={[styles.applyBtn, !tempPromo && { opacity: 0.5 }]} 
+                                    onPress={applyPromoCode}
+                                    disabled={!tempPromo}
+                                >
+                                    <Text style={styles.applyBtnText}>APPLY</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <View style={styles.appliedPromoRow}>
+                                <View style={styles.appliedInfo}>
+                                    <CheckCircle size={20} color="#10B981" />
+                                    <View style={{ marginLeft: 12 }}>
+                                        <Text style={styles.appliedCode}>{promoCode}</Text>
+                                        <Text style={styles.appliedSub}>₹{discount} savings applied!</Text>
+                                    </View>
+                                </View>
+                                <TouchableOpacity onPress={removePromo}>
+                                    <Text style={styles.removeText}>REMOVE</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                        {promoStatus === 'error' && !promoApplied && (
+                            <Text style={styles.promoError}>This code is invalid. Try MOVEX50</Text>
+                        )}
+                    </View>
                 </Animated.View>
                 {isPharmacy && (
                     <Animated.View entering={FadeInDown.delay(150)} style={[styles.card, { marginTop: 15, backgroundColor: '#fdf2f8', borderColor: '#fbcfe8', borderWidth: 1 }]}>
@@ -327,16 +435,22 @@ export default function CartCheckoutScreen({ route, navigation }) {
                                 </View>
                                 <View style={styles.billRow}>
                                     <Text style={styles.billLabel}>Delivery Charges</Text>
-                                    <Text style={styles.billValue}>₹{parseFloat(quote?.deliveryFee || 30).toFixed(2)}</Text>
+                                    <Text style={styles.billValue}>₹{parseFloat(quote?.distanceCharge || 30).toFixed(2)}</Text>
                                 </View>
+                                {parseFloat(quote?.breakdown?.surgeAmount) > 0 && (
+                                    <View style={styles.billRow}>
+                                        <Text style={[styles.billLabel, { color: '#f59e0b' }]}>High Demand Surcharge</Text>
+                                        <Text style={[styles.billValue, { color: '#f59e0b' }]}>₹{parseFloat(quote.breakdown.surgeAmount).toFixed(2)}</Text>
+                                    </View>
+                                )}
                                 {discount > 0 && (
                                     <View style={styles.billRow}>
-                                        <Text style={[styles.billLabel, { color: '#10B981' }]}>Healthcare Discount</Text>
+                                        <Text style={[styles.billLabel, { color: '#10B981' }]}>Discount Applied</Text>
                                         <Text style={[styles.billValue, { color: '#10B981' }]}>-₹{discount.toFixed(2)}</Text>
                                     </View>
                                 )}
                                 <View style={styles.billRow}>
-                                    <Text style={styles.billLabel}>Safety & Taxes</Text>
+                                    <Text style={styles.billLabel}>Taxes & Fees</Text>
                                     <Text style={styles.billValue}>₹{parseFloat(quote?.tax || 0).toFixed(2)}</Text>
                                 </View>
                                 <View style={styles.billDivider} />

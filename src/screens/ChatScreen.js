@@ -13,6 +13,8 @@ export default function ChatScreen({ navigation, route }) {
   
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
+  const [isTyping, setIsTyping] = useState(false);
+  const typingTimeoutRef = useRef(null);
   const socketRef = useRef(null);
   const flatListRef = useRef(null);
 
@@ -44,7 +46,11 @@ export default function ChatScreen({ navigation, route }) {
             socket.emit('join_order', orderId);
         });
 
+        socket.on('user_typing', () => setIsTyping(true));
+        socket.on('user_stop_typing', () => setIsTyping(false));
+
         socket.on('new_message', (data) => {
+            setIsTyping(false); // Stop typing when message arrives
             const incoming = {
                 id: data.id || Date.now().toString(),
                 text: data.text,
@@ -63,9 +69,23 @@ export default function ChatScreen({ navigation, route }) {
     };
   }, [orderId]);
 
+  const handleTextChange = (text) => {
+    setMessage(text);
+    if (socketRef.current) {
+        socketRef.current.emit('typing', { orderId, sender: 'User' });
+        
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+            socketRef.current.emit('stop_typing', { orderId });
+        }, 2000);
+    }
+  };
+
   const sendMessage = () => {
     if (!message.trim()) return;
     
+    if (socketRef.current) socketRef.current.emit('stop_typing', { orderId });
+
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const newMessage = {
       id: Date.now().toString(),
@@ -109,7 +129,9 @@ export default function ChatScreen({ navigation, route }) {
             </View>
             <View>
                 <Text style={styles.headerName}>{recipientName}</Text>
-                <Text style={styles.headerStatus}>{recipientRole} • Active Now</Text>
+                <Text style={[styles.headerStatus, isTyping && { color: '#2563EB' }]}>
+                    {isTyping ? 'Typing...' : `${recipientRole} • Active Now`}
+                </Text>
             </View>
         </View>
         <TouchableOpacity style={styles.actionBtn}>
@@ -119,7 +141,7 @@ export default function ChatScreen({ navigation, route }) {
 
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
-        style={{ flex: 1 }}
+         style={{ flex: 1 }}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
         <FlatList
@@ -137,7 +159,7 @@ export default function ChatScreen({ navigation, route }) {
                     style={styles.input}
                     placeholder="Type a message..."
                     value={message}
-                    onChangeText={setMessage}
+                    onChangeText={handleTextChange}
                     multiline
                 />
                 <TouchableOpacity style={styles.sendBtn} onPress={sendMessage}>

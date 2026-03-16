@@ -82,6 +82,53 @@ export default function OrderHistoryScreen({ navigation }) {
     ]);
   };
 
+  const handleReportIssue = (order) => {
+    Alert.alert(
+      'Report Issue',
+      'Select order issue for the command center review:',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Missing Items', 
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await api.post(`/orders/${order._id}/dispute`, {
+                category: 'MISSING_ITEM',
+                reason: 'Customer reported items missing from the delivered package.',
+                items: order.items // In a real app, we'd add an item picker here
+              });
+              Alert.alert('Reported', 'Dispute node active. Our audit team is reviewing the item log.');
+              fetchOrders();
+            } catch (err) {
+              Alert.alert('Protocol Error', err.response?.data?.message || 'Failed to engage dispute node.');
+            } finally {
+              setLoading(false);
+            }
+          } 
+        },
+        { 
+          text: 'Wrong Route', 
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await api.post(`/orders/${order._id}/dispute`, {
+                category: 'WRONG_ROUTE',
+                reason: 'Driver took an inefficient or suspicious route during transit.'
+              });
+              Alert.alert('Telemetry Alert', 'Route telemetry flagged for review. Our navigation auditors will investigate.');
+              fetchOrders();
+            } catch (err) {
+              Alert.alert('Protocol Error', 'Failed to alert command center.');
+            } finally {
+              setLoading(false);
+            }
+          } 
+        }
+      ]
+    );
+  };
+
   const renderItem = ({ item }) => {
     const cfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.PENDING;
     const canCancel = !['DELIVERED', 'CANCELLED', 'REJECTED', 'PICKED_UP'].includes(item.status);
@@ -127,10 +174,15 @@ export default function OrderHistoryScreen({ navigation }) {
                     </TouchableOpacity>
                 )}
                 {item.status === 'DELIVERED' && (
-                    <TouchableOpacity style={styles.reorderBtn} onPress={() => handleReorder(item)}>
-                        <Text style={styles.reorderText}>Reorder</Text>
-                        <Zap size={14} color="#2563EB" />
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <TouchableOpacity style={styles.helpBtn} onPress={() => handleReportIssue(item)}>
+                            <Text style={styles.helpText}>Help</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.reorderBtn} onPress={() => handleReorder(item)}>
+                            <Text style={styles.reorderText}>Reorder</Text>
+                            <Zap size={14} color="#2563EB" />
+                        </TouchableOpacity>
+                    </View>
                 )}
                 <View style={styles.nextBtn}>
                     <ArrowRight size={18} color="#fff" />
@@ -231,6 +283,8 @@ const styles = StyleSheet.create({
     cancelBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#fff1f2', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#ffe4e6' },
     reorderBtn: { flexDirection: 'row', height: 44, borderRadius: 14, backgroundColor: '#eff6ff', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, borderWidth: 1, borderColor: '#bfdbfe', gap: 6 },
     reorderText: { color: '#2563EB', fontWeight: '800', fontSize: 13 },
+    helpBtn: { height: 44, borderRadius: 14, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, borderWidth: 1, borderColor: '#e2e8f0' },
+    helpText: { color: '#64748b', fontWeight: '800', fontSize: 13 },
     nextBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.2, shadowRadius: 10 },
     skeletonCard: { backgroundColor: '#e2e8f0', borderRadius: 32, padding: 24, marginBottom: 20, height: 180 },
     skeletonHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24 },

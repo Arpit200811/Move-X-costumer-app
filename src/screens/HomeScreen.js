@@ -40,7 +40,8 @@ import api from "../services/api";
 import * as Location from "expo-location";
 import { LinearGradient } from "expo-linear-gradient";
 import { registerForPushNotificationsAsync } from "../services/notifications";
-import Skeleton from "../components/Skeleton";
+import ShimmerLoader from "../components/ShimmerLoader";
+import { useQuery } from '@tanstack/react-query';
 
 const { width } = Dimensions.get("window");
 
@@ -107,19 +108,20 @@ export default function HomeScreen({ navigation }) {
   };
 
   const [locationName, setLocationName] = useState("Locating...");
-  const [activeOrders, setActiveOrders] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [userFirstName, setUserFirstName] = useState("Guest");
 
-  const fetchActiveOrders = useCallback(async () => {
-    try {
+  const { data: activeOrders = [], refetch, isLoading: ordersLoading } = useQuery({
+    queryKey: ['activeOrders'],
+    queryFn: async () => {
       const res = await api.get("/orders/my");
       const orders = res.data.orders || [];
       const TERMINAL = ["DELIVERED", "CANCELLED", "REJECTED", "FAILED"];
-      setActiveOrders(orders.filter((o) => !TERMINAL.includes(o.status)));
-    } catch (_) {}
-  }, []);
+      return orders.filter((o) => !TERMINAL.includes(o.status));
+    },
+    refetchInterval: 15000, // Enterprise standard polling
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -144,23 +146,17 @@ export default function HomeScreen({ navigation }) {
           );
         }
       }
-
-      await fetchActiveOrders();
       setIsLoading(false);
       registerForPushNotificationsAsync();
     })();
 
-    const pollInterval = setInterval(fetchActiveOrders, 30000);
-    return () => {
-      mounted = false;
-      clearInterval(pollInterval);
-    };
-  }, [fetchActiveOrders]);
+    return () => { mounted = false; };
+  }, []);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchActiveOrders().then(() => setRefreshing(false));
-  }, [fetchActiveOrders]);
+    refetch().then(() => setRefreshing(false));
+  }, [refetch]);
 
   const navigateToService = (id) => {
     if (id === "tickets") {
@@ -505,12 +501,12 @@ export default function HomeScreen({ navigation }) {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.brandsScroll}
           >
-            {isLoading ? (
+            {isLoading || ordersLoading ? (
               [1, 2, 3].map((_, i) => (
                 <View key={i} style={[styles.brandCard, { backgroundColor: theme.card }]}>
-                  <Skeleton width={160} height={100} borderRadius={16} />
-                  <Skeleton width={100} height={15} borderRadius={4} style={{ marginTop: 8 }} />
-                  <Skeleton width={60} height={10} borderRadius={4} style={{ marginTop: 4 }} />
+                  <ShimmerLoader w={160} h={100} borderRadius={16} />
+                  <ShimmerLoader w={100} h={15} borderRadius={4} style={{ marginTop: 8 }} />
+                  <ShimmerLoader w={60} h={10} borderRadius={4} style={{ marginTop: 4 }} />
                 </View>
               ))
             ) : (
